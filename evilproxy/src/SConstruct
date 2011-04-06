@@ -1,0 +1,7 @@
+Program( 
+    'eproxy',
+    ['evilproxy.c', 'networks.c'],
+    LIBS = ['ev','c'],
+    LIBPATH = '/usr/local/lib',
+    CPPPATH = '/usr/local/include'
+)
