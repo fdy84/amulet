@@ -1,9 +1,9 @@
 atomic project
 ===============
 
-A Part of dnprj project.
+A Part of amulet project. exporting from dnprj project.
 
-Website: http://code.google.com/p/dnproj/
+Website: http://code.google.com/p/amulet/
 Main author: Dai,Nan <dainan13@gmail.com>
 
 atomic project is free software released under the New BSD License
@@ -22,7 +22,7 @@ atomic project is a prealpha version in current.
 --------------------------
 
 The latest development code is available from
-https://dnproj.googlecode.com/svn/trunk/atomic/
+https://amulet.googlecode.com/svn/trunk/libatomic/
 
 
 atomic project for python extension requires a recent version of Python. 
@@ -65,5 +65,5 @@ doc directory included with the source package.
 -----------------------
 
 You can report bugs and send patches to the py-aluminium issue tracker,
-http://code.google.com/p/dnproj/issues/list
+http://code.google.com/p/amulet/issues/list
 
