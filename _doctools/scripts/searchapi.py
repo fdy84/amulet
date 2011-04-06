@@ -11,7 +11,37 @@ class SearchAPI ( object ):
     def parser( self, name ):
         
         with open( name, 'r' ) as fp :
-            a = fp.read()
+            
+            lns = fp.read().splitlines()
+            
+            i = 0
+            while( i < len(lns) ):
+                
+                if lns[i].startswith('/*') \
+                                and a.strip('/*').lower() = 'autodoc' :
+                    
+                    j = i
+                    while( j < len(lns) and '*/' not in lns[j] ):
+                        pass
+                    
+                    if i != j :
+                        doc = [ lns[i].split('/*',1)[-1] ]\
+                              + lns[i+1:j-1]
+                              + [lns[j].split('*/',1)[0] ]
+                    else :
+                        doc = lns[i].split('/*',1)[-1].split('*/',1)[0]
+            
+                    doc = '' + '\r\n'.join(doc)
+                    
+                    i = j
+                    while( j < len(lns) and '{' in lns[j] ):
+                        pass
+                    
+                    fdef = lns[i:j-1] + [lns[j].split('{')[0]]
+                    fdef = ''.join(fdef)
+                    
+                    i = j+1
+                    
         
         return
         
