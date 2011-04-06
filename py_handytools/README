@@ -29,7 +29,7 @@ handytools project for python extension requires a recent version of Python.
 It should work with Python above 2.5.
 
 
-To install, unpack the handytools project archive, move to the script dir 
+To install, unpack the handytools project archive, move to the scripts dir 
 and run ::
 
   python pyftp.py [-p <port>] [-d <path>]
