@@ -1,14 +1,14 @@
 
 
 Welcome to amulet's documentation!
-================================
+=========================================
 
 Contents:
 
 .. toctree::
     :maxdepth: 3
 
-%(projects)
+%(projects)s
    
 
 Indices and tables

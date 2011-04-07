@@ -2,36 +2,52 @@
 import ConfigParser
 import os.path
 
-import searchapi
+import amuletdoc
 
 class DocTool( object ):
     
-    def __init__ ( self, buildpath=',/build' ) :
+    def __init__ ( self, srcpath='../../', buildpath='../build' ) :
         
         config = ConfigParser.ConfigParser()
         config.read('config.conf')
         
         self.prjs = [ ( [('project',s)]\
                         + [ (o,config.get(s,o)) for o in config.options(s) ] )
-                      for s in config.sections ]
+                      for s in config.sections() ]
+        self.prjs = [ dict(prj) for prj in self.prjs ]
         
-        self.buildpath = buildpath
+        self.buildpath = os.path.abspath(buildpath)
+        self.srcpath = os.path.abspath(srcpath)
         
     def compile( self ):
         
-        for prj in prjs :
+        try :
+            os.makedirs( self.buildpath )
+        except OSError, e :
+            pass
+        
+        for prj in self.prjs :
             
-            doc = searchapi.SearchAPI( 
-                    prj, os.path.join('../../',prj.get('src',prj['project'])) )
+            prjpath = os.path.join( self.srcpath, 
+                                    prj.get( 'src', prj['project'] ) )
+            doc = amuletdoc.AutoDoc( prj, prjpath )
             
-            doc.complie( os.path.join(buildpath,prj['project'])+'.rst' )
+            doc.compile( os.path.join(self.buildpath,prj['project'])+'.rst' )
             
-        projectindexs = [ prj['project']+'.rst' for prj in prjs ]
+        prjidxs = [ prj['project']+'.rst' for prj in self.prjs ]
+        prjidxs = '\r\n'.join( ' '*4+prj for prj in prjidxs )
 
         with open( 'index.xrst', 'r' ) as fp :
             formatter = fp.read()
         
-        with open( 'index.rst', 'w' ) as fp :
-            fp.write( formatter % {'projects':'projectindexs'} )
+        with open( os.path.join(self.buildpath,'index.rst'), 'w' ) as fp :
+            fp.write( formatter % {'projects':prjidxs} )
         
         return
+
+
+if __name__ == '__main__':
+    
+    dt = DocTool()
+    dt.compile()
+    
