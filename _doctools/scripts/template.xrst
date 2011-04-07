@@ -1,0 +1,28 @@
+======================
+|%(project)s| 使用手册
+======================
+
+
+.. module:: %(project)s
+   :synopsis: %(project)s Operate.
+.. moduleauthor:: %(auth)s
+
+
+.. contents:: 索引
+
+.. |%(project)s| replace:: :strong:`%(project)s`
+
+
+|%(project)s| 的使用
+======================
+
+
+|%(project)s| 数据类型
+----------------------
+
+%(DataType)s
+    
+|%(project)s| 函数
+----------------------
+
+%(Fuctions)s
