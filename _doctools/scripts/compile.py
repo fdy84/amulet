@@ -1,10 +1,14 @@
 
 import ConfigParser
+import os
 import os.path
+import shutil
 
 import amuletdoc
 
 class DocTool( object ):
+    
+    newlines = '\n'
     
     def __init__ ( self, srcpath='../../', buildpath='../build' ) :
         
@@ -25,6 +29,11 @@ class DocTool( object ):
             os.makedirs( self.buildpath )
         except OSError, e :
             pass
+            
+        try :
+            os.makedirs( os.path.join(self.buildpath,'_static') )
+        except OSError, e :
+            pass
         
         for prj in self.prjs :
             
@@ -35,13 +44,17 @@ class DocTool( object ):
             doc.compile( os.path.join(self.buildpath,prj['project'])+'.rst' )
             
         prjidxs = [ prj['project']+'.rst' for prj in self.prjs ]
-        prjidxs = '\r\n'.join( ' '*4+prj for prj in prjidxs )
+        prjidxs = self.newlines.join( ' '*4+prj for prj in prjidxs )
 
-        with open( 'index.xrst', 'r' ) as fp :
+        with open( 'index.xrst', 'rU' ) as fp :
             formatter = fp.read()
         
         with open( os.path.join(self.buildpath,'index.rst'), 'w' ) as fp :
             fp.write( formatter % {'projects':prjidxs} )
+        
+        for name in os.listdir('./'):
+            if name.endswith('._am') :
+                shutil.copy( name, os.path.join( self.buildpath, name[:-4] ) )
         
         return
 
@@ -50,4 +63,6 @@ if __name__ == '__main__':
     
     dt = DocTool()
     dt.compile()
+    print 'OK'
+    
     
