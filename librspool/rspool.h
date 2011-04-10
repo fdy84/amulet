@@ -29,6 +29,9 @@ typedef struct rspool_group
     struct rspool_node *cur_node;
 } RSPOOL_GROUP;
 
+/* autodoc
+    testdoc
+*/
 typedef struct resource_pool
 {
     RSPOOL_GROUP *grp_array[MAX_GROUPS];

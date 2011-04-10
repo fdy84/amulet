@@ -29,6 +29,11 @@ rspool_new()
 }
 
 
+/* autodoc
+   rsp 句柄 
+   gid 组号 
+   handle 资源句柄
+*/
 int 
 rspool_put(RSPOOL *rsp, int gid, void *handle)
 {
