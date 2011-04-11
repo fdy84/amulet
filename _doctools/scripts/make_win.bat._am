@@ -1,0 +1,43 @@
+make
+    
+choice /C 1234567890 /M "html,dirhtml,pickle,json,htmlhelp,qthelp,latex,changes,linkcheck,doctest"
+
+if errorlevel 10 (
+    make doctest
+)
+
+if errorlevel 9 (
+    make linkcheck
+)
+
+if errorlevel 8 (
+    make changes
+)
+
+if errorlevel 7 (
+    make latex
+)
+
+if errorlevel 6 (
+    make qthelp
+)
+
+if errorlevel 5 (
+    make htmlhelp
+)
+
+if errorlevel 4 (
+    make json
+)
+
+if errorlevel 3 (
+    make pickle
+)
+
+if errorlevel 2 (
+    make dirhtml
+)
+
+if errorlevel 1 (
+    make html
+)
