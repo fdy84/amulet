@@ -1,5 +1,5 @@
-make
-    
+call make
+
 choice /C 1234567890 /M "html,dirhtml,pickle,json,htmlhelp,qthelp,latex,changes,linkcheck,doctest"
 
 if errorlevel 10 (
