@@ -1,7 +1,7 @@
 @ECHO OFF
 
-set PYTHON = "python"
-CALL :IF_EXIST python.exe || set PYTHON = ""
+set PYTHON="python"
+CALL :IF_EXIST python.exe || set PYTHON=""
 
 %PYTHON% compile.py
 
