@@ -2,7 +2,7 @@ import zipfile
 import sys
 import os.path
 
-def zipfile( arg, dirname, names ):
+def ziponefile( arg, dirname, names ):
     
     myzip, prefixlen = arg
     
@@ -20,9 +20,9 @@ def makezipdir( zipname, srcpath ):
     
     srcpath = os.path.join( srcpath, '' )
     
-    with ZipFile( zipname, 'w') as myzip:
+    with zipfile.ZipFile( zipname, 'w') as myzip:
     
-        os.path.walk( srcpath, zipfile, ( myzip, len(srcpath) ) )
+        os.path.walk( srcpath, ziponefile, ( myzip, len(srcpath) ) )
     
     return
 
