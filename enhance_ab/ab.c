@@ -301,7 +301,7 @@ apr_interval_time_t aprtimeout = apr_time_from_sec(30); /* timeout value */
 
 int use_urllist = 0;
 char *listfile;
-char hostname2[256];
+char uri[1024];
 
 /* overrides for ab-generated common headers */
 int opt_host = 0;       /* was an optional "Host:" header specified? */
@@ -1767,8 +1767,8 @@ static void test(void)
 		            "HOST: %s\r\n" "%s" "%s"
 		            "%s" "%s" "\r\n",
 		            (posting == 0) ? "GET" : "HEAD",
-		            path,
-		            hostname2,
+		            uri,
+		            hostname,
 		            keepalive ? "Connection: Keep-Alive\r\n" : "",
 		            cookie, auth, hdrs);
 		            
@@ -1989,8 +1989,6 @@ static int parse_url(char *url)
 static int eco_parse_url(char *url)
 {
     char *cp;
-    char *scope_id;
-    apr_status_t rv;
 
     if (strlen(url) > 7 && strncmp(url, "http://", 7) == 0) {
         url += 7;
@@ -2010,16 +2008,13 @@ static int eco_parse_url(char *url)
         exit(1);
     }
 #endif
+    
 
     if ((cp = strchr(url, '/')) == NULL)
         return 1;
-    cp[cp - url] = '\0';
-    rv = apr_parse_addr_port(&hostname, &scope_id, &port, cp, cntxt);
-    if (rv != APR_SUCCESS || !hostname || scope_id) {
-        return 1;
-    }
-    path = cp;
-    strncpy(hostname2, hostname, 255);
+    strncpy(uri, cp, 1023);
+    *cp = '\0';
+    hostname = url;
 
     return 0;
 }
@@ -2294,11 +2289,18 @@ int main(int argc, const char * const argv[])
         }
     }
 
-    if (opt->ind != argc - 1) {
-        fprintf(stderr, "%s: wrong number of arguments\n", argv[0]);
-        usage(argv[0]);
+    if (use_urllist) {
+    	if (opt->ind != argc) {
+        	fprintf(stderr, "%s: wrong number of arguments\n", argv[0]);
+        	usage(argv[0]);
+    	}
     }
-
+    else {
+    	if (opt->ind != argc - 1) {
+        	fprintf(stderr, "%s: wrong number of arguments\n", argv[0]);
+	        usage(argv[0]);
+    	}
+    }
 	if (!use_urllist) {
 	    if (parse_url(apr_pstrdup(cntxt, opt->argv[opt->ind++]))) {
 	        fprintf(stderr, "%s: invalid URL\n", argv[0]);
@@ -2365,3 +2367,4 @@ int main(int argc, const char * const argv[])
 
     return 0;
 }
+
