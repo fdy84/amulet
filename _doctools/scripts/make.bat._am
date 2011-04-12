@@ -2,12 +2,12 @@
 
 REM Command file for Sphinx documentation
 
-set PYTHON = "python"
-CALL :IF_EXIST python.exe || set PYTHON = ""
+set PYTHON="python"
+CALL :IF_EXIST python.exe || set PYTHON=""
 
-set P = /b 0
+set P=/b 0
 set SPHINXBUILD=sphinx-build
-CALL :IF_EXIST %SPHINXBUILD%.exe || set P = /b 1
+CALL :IF_EXIST %SPHINXBUILD%.exe || set P=/b 1
 
 if "%P" == /b 1 ( 
     @for /f %%i in ('%PYTHON% getpytoolpath.py') do @set SPHINXBUILD=%%i\%SPHINXBUILD% 
