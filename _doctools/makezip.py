@@ -12,7 +12,7 @@ def ziponefile( arg, dirname, names ):
         
         if os.path.isfile(fn) :
             
-            myzip.write(fn[prefixlen:])
+            myzip.write( fn, arcname=fn[prefixlen:] )
     
     return
 
