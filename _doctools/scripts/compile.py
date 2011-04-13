@@ -13,7 +13,7 @@ class DocTool( object ):
     def __init__ ( self, srcpath='../../', buildpath='../build' ) :
         
         config = ConfigParser.ConfigParser()
-        config.read('config.conf')
+        config.read('../etc/amuletdoc.conf')
         
         self.prjs = [ ( [('project',s)]\
                         + [ (o,config.get(s,o)) for o in config.options(s) ] )

@@ -7,7 +7,7 @@ CALL :IF_EXIST python.exe || set PYTHON=""
 
 goto :EOF
 
-:IF_EXIST BY chenall QQ:366840202 2009-09-29 http://www.chenall.com
+:IF_EXIST
 SETLOCAL&PATH %PATH%;%~dp0;%cd%
 if "%~$PATH:1"=="" exit /b 1
 exit /b 0
