@@ -1,9 +1,12 @@
-rem @ECHO OFF
+@ECHO OFF
 
 set PYTHON=python
 CALL :IF_EXIST python.exe || set PYTHON=
 
-%PYTHON% readver.py .\ build\ver
+IF NOT EXIST build mkdir build
+IF NOT EXIST publish mkdir publish
+
+%PYTHON% readver.py .\ build\ver force
 
 cd scripts
 CALL compile.bat
@@ -16,9 +19,7 @@ CALL make.bat html
 CALL make.bat htmlhelp
 cd ..
 
-@ECHO ON
-
-%PYTHON% makezip.py amulet-html%VER%.zip build/_build/html
+%PYTHON% makezip.py publish/amulet-html%VER%.zip build/_build/html
 
 set CHMBUILDPATH=tools\htmlhelpworkshop
 set BUILDCHM=/b 0
@@ -42,8 +43,8 @@ IF EXIST build\_build\htmlhelp\Amulet.chm set BUILDCHM=/b 0
 
 IF "%BUILDCHM" == /b 1 (
     echo. chmpackage
-    copy build\_build\htmlhelp\Amulet.chm .\Amulet%VER%.chm
-    %PYTHON% makezip.py amulet-chm%VER%.zip ./Amulet%VER%.chm 
+    copy build\_build\htmlhelp\Amulet.chm publish\Amulet%VER%.chm
+    %PYTHON% makezip.py publish/amulet-chm%VER%.zip public/Amulet%VER%.chm 
 )
 
 goto :EOF
