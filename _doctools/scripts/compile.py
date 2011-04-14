@@ -37,9 +37,7 @@ class DocTool( object ):
         
         for prj in self.prjs :
             
-            prjpath = os.path.join( self.srcpath, 
-                                    prj.get( 'src', prj['project'] ) )
-            doc = amuletdoc.AutoDoc( prj, prjpath )
+            doc = amuletdoc.AutoDoc( prj, self.srcpath )
             
             doc.compile( os.path.join(self.buildpath,prj['project'])+'.rst' )
             

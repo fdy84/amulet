@@ -1,0 +1,17 @@
+======================
+|%(project)s| 使用手册
+======================
+
+
+.. module:: %(project)s
+   :synopsis: %(project)s Operate.
+.. moduleauthor:: %(auth)s
+
+
+.. contents:: 索引
+
+.. |%(project)s| replace:: :strong:`%(project)s`
+
+
+%(Intro)s
+

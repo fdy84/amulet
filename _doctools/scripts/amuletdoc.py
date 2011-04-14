@@ -11,11 +11,20 @@ class AutoDoc ( object ):
         if 'project' not in prjinfo :
             raise Exception, 'ProjectName must provied'
         
+        self.prjpath = prjinfo.get( 'path', prjinfo['project'] )
+        self.prjpath = os.path.join(srcpath,self.prjpath)
+        #print 'prjpath', self.prjpath
+        
+        self.srcpath = prjinfo.get('autodoc', None)
+        if self.srcpath is not None :
+            self.srcpath = os.path.join(self.prjpath,self.srcpath)
+        self.codec = prjinfo.get('codec', 'utf-8').lower()
+        self.fileexts = ['.c','.h']
+        self.doctype = prjinfo.get('txt', 'rst').lower()
+        self.template = prjinfo.get('template','template')
+        
         self.prjinfo = prjinfo
         self.prjinfo.setdefault('auth','unkown')
-        
-        self.srcpath = srcpath
-        self.fileexts = ['.c','.cpp','.h','.hpp']
         
         if slient :
             self.printinfo = self.slient
@@ -46,6 +55,12 @@ class AutoDoc ( object ):
     def printdoc( filename ):
         print 'file', filename, ':'
         
+    def readlines( self, fp ):
+        c = fp.read()
+        if self.codec != 'utf-8' :
+            c = c.decode(self.codec).encode('utf-8')
+        return c.splitlines()
+        
     def parse_doc( self, lns, i ):
         
         j = i
@@ -63,16 +78,18 @@ class AutoDoc ( object ):
         doc = [ d.expandtabs(4).rstrip() for d in doc ]
         ljust_len = self.findjust( doc )
         
+        p = '| ' if self.doctype == 'txt' else ''
+        
         if ljust_len != 0 :
-            doc = [ ' '*4+d[ljust_len:] for d in doc ]
+            doc = [ ' '*4 + p + d[ljust_len:] for d in doc ]
         else :
-            doc = [ ' '*4+d for d in doc ]
+            doc = [ ' '*4 + p + d for d in doc ]
         
         while( len(doc) > 0 and doc[0] == '' ):
             doc.pop(0)
         while( len(doc) > 0 and doc[-1] == '' ):
             doc.pop(-1)
-            
+        
         doc = self.newlines.join( doc )
         
         return j, doc 
@@ -142,7 +159,7 @@ class AutoDoc ( object ):
         
         with open( path, 'r' ) as fp :
             
-            lns = fp.read().splitlines()
+            lns = self.readlines(fp)
             
             i = 0
             while( i < len(lns) ):
@@ -199,15 +216,38 @@ class AutoDoc ( object ):
         
     def compile( self, outfile ):
         
-        funs = {}
-        os.path.walk( self.srcpath, self.step, funs )
+        autodocs = {}
         
-        with open( 'template.xrst', 'rU' ) as fp :
+        #print self.srcpath
+        if self.srcpath :
+            os.path.walk( self.srcpath, self.step, autodocs )
+        
+        for n in ('README','README.txt','README.rst') :
+            intro = os.path.join(self.prjpath,n)
+            if os.path.exists(intro) and os.path.isfile(intro) :
+                break
+        else :
+            intro = None
+            
+        if intro :
+            print intro
+            with open( intro, 'rU' ) as fp :
+                intro = self.readlines(fp)
+                if self.doctype == 'txt' :
+                    intro = [ '| ' + i for i in intro ]
+                else :
+                    intro = self.newlines.join(intro)
+        else :
+            intro = ''
+            
+        
+        with open( self.template + '.xrst', 'rU' ) as fp :
             formatter = fp.read()
         
         info = self.prjinfo.copy()
-        info['Fuctions'] = self.newlines.join( funs.get('function',[]) )
-        info['DataType'] = self.newlines.join( funs.get('type',[]) )
+        info['Intro'] = intro
+        info['Fuctions'] = self.newlines.join( autodocs.get('function',[]) )
+        info['DataType'] = self.newlines.join( autodocs.get('type',[]) )
         
         with open( outfile, 'w' ) as fp :
             fp.write( formatter % info )
