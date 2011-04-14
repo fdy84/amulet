@@ -1,7 +1,7 @@
 @ECHO OFF
 
-set PYTHON="python"
-CALL :IF_EXIST python.exe || set PYTHON=""
+set PYTHON=python
+CALL :IF_EXIST python.exe || set PYTHON=
 
 set SPHINXBUILD=sphinx-build
 
@@ -18,11 +18,11 @@ if "%PREPARED" == /b 1 (
     set EASYINSTALL=easy_install
     set PREEI=/b 0
     CALL :IF_EXIST %SPHINXBUILD%.exe || set PREPARED=/b 1
-    if "PREEI" == /b 1 (
+    if "%PREEI" == /b 1 (
         @for /f %%i in ('%PYTHON% getpytoolpath.py') do @set EASYINSTALL=%%i\%EASYINSTALL%
         IF EXIST %EASYINSTALL%.exe set PREPARED=/b 0
     )
-    if "PREEI" == /b 1 (
+    if "%PREEI" == /b 1 (
         %PYTHON% pre_easyinstall.py
     )
     

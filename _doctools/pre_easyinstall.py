@@ -52,7 +52,10 @@ def installpkg( path ):
     
     import setup
     
-    shutil.rmtree( path )
+    try :
+        shutil.rmtree( path )
+    except :
+        pass
     
     return
     

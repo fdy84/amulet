@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 
+import datetime
 import sys, os
 
 extensions = []
@@ -16,7 +17,15 @@ project = u'Amulet'
 copyright = u'2011, amulet group'
 
 version = '1.0'
-release = '1.0'
+try :
+    with open('./ver','r') as fp :
+        svnver = fp.read()
+    release = version+'.svn'+svnver
+except :
+    release = version
+    
+release += '.build.'+datetime.datetime.now().strftime('%Y.%m.%d')
+release = release.strip()
 
 language = 'zh-CN'
 

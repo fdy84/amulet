@@ -2,8 +2,8 @@
 
 REM Command file for Sphinx documentation
 
-set PYTHON="python"
-CALL :IF_EXIST python.exe || set PYTHON=""
+set PYTHON=python
+CALL :IF_EXIST python.exe || set PYTHON=
 
 set P=/b 0
 set SPHINXBUILD=sphinx-build

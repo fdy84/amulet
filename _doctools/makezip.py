@@ -28,5 +28,11 @@ def makezipdir( zipname, srcpath ):
 
 if __name__ == '__main__' :
     
-    makezipdir( sys.argv[1], sys.argv[2] )
+    p = sys.argv[2]
+    
+    if os.path.isfile(p):
+        with zipfile.ZipFile( sys.argv[1], 'w') as myzip:
+            myzip.write( p, arcname=os.path.split(p)[1] ) 
+    elif os.path.isdir(p):
+        makezipdir( sys.argv[1], sys.argv[2] )
     
