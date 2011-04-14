@@ -14,12 +14,16 @@ cd ..
 
 cd build
 set VER=""
-@for /f %%i in ('%PYTHON% getver.py') do @set VER=-%%i
+@for /f %%i in ('%PYTHON% getconfvar.py release') do @set VER=-%%i
+set CHMFILE=""
+@for /f %%i in ('%PYTHON% getconfvar.py htmlhelp_basename') do @set CHMFILE=%%i
+set PRJNAME=""
+@for /f %%i in ('%PYTHON% getconfvar.py project') do @set PRJNAME=%%i
 CALL make.bat html
 CALL make.bat htmlhelp
 cd ..
 
-%PYTHON% makezip.py publish/amulet-html%VER%.zip build/_build/html
+%PYTHON% makezip.py publish/%PRJNAME%-html%VER%.zip build/_build/html
 
 set CHMBUILDPATH=tools\htmlhelpworkshop
 set BUILDCHM=/b 0
@@ -33,18 +37,18 @@ IF EXIST %CHMBUILDPATH%\hhc.exe set BUILDCHM=/b 1
 
 IF "%BUILDCHM" == /b 1 (
     SET SC=%cd%
-    SET HHPFILE=%cd%\build\_build\htmlhelp\Amulet.hhp
+    SET HHPFILE=%cd%\build\_build\htmlhelp\%CHMFILE%.hhp
     cd %CHMBUILDPATH% 
     hhc.exe %HHPFILE%
     cd %SC%
 )
 
-IF EXIST build\_build\htmlhelp\Amulet.chm set BUILDCHM=/b 0
+IF EXIST build\_build\htmlhelp\%CHMFILE%.chm set BUILDCHM=/b 0
 
 IF "%BUILDCHM" == /b 1 (
     echo. chmpackage
-    copy build\_build\htmlhelp\Amulet.chm publish\Amulet%VER%.chm
-    %PYTHON% makezip.py publish/amulet-chm%VER%.zip public/Amulet%VER%.chm 
+    copy build\_build\htmlhelp\%CHMFILE%.chm publish\%CHMFILE%%VER%.chm
+    %PYTHON% makezip.py publish/%CHMFILE%-chm%VER%.zip public/%CHMFILE%%VER%.chm 
 )
 
 goto :EOF
