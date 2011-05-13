@@ -160,7 +160,7 @@ int ep_address_tostring_pretty( ep_address* epaddr, char* p, int size )
         size = size - i - 1;
     }
     
-    inet_ntoa_r( epaddr->addr.sin_addr, p+i, size );
+    inet_ntop(AF_INET, &(epaddr->addr.sin_addr), p+i, size);
     
     i += strlen( p+i );
     
