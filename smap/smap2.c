@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <pthread.h>
+
 #include "smap2.h"
 #include "tree.h"
 
@@ -37,22 +38,21 @@ number_cmp(struct SMAP_ENT *a, struct SMAP_ENT *b)
 }
 
 typedef int CMP(struct SMAP_ENT *, struct SMAP_ENT *) ;
-CMP *cmp;
+CMP *cmp = number_cmp;
 
 RB_HEAD(SMAP_TREE, SMAP_ENT);
 RB_PROTOTYPE_STATIC(SMAP_TREE, SMAP_ENT, val_ent, cmp);
 RB_GENERATE_STATIC(SMAP_TREE, SMAP_ENT, val_ent, cmp);
 
-struct slot {
+struct bucket {
         uint64_t counter;
         struct SMAP_TREE root;
 };
 
-
 struct segment {
 		uint64_t	counter;
-		int	slot_num;
-		struct slot *sp;
+		int	bucket_num;
+		struct bucket *bp;
         pthread_rwlock_t seg_lock;
 };
 
@@ -67,33 +67,34 @@ struct segment {
 struct smap *
 smap_init(int capacity , int level, int hash_type)
 {
-	struct slot *sp;
+	struct bucket *bp;
 	struct smap *mp;
-	int i;
+	int i, j;
 	int rc;
 	int sshift = 0;
 	int ssize = 1;
 	int cap, c;
 
-	mp = malloc(sizeof(struct smap));
+	mp = (struct smap *)malloc(sizeof(struct smap));
 
 	while ( ssize < level ) {
 		++sshift;
 		ssize <<= 1;
 	}
 
-	mp->segment_shift = 32 - sshift;
-	mp->segment_mask = ssize - 1;
+	mp->seg_shift = 32 - sshift;
+	mp->seg_mask = ssize - 1;
 
 	if (capacity > MAXIMUM_CAPACITY)
 		capacity = MAXIMUM_CAPACITY;
 	c = capacity / ssize;
 	if (c * ssize < capacity)
 		++c;
+	cap = 1;
 	while (cap < c)
 		cap <<= 1;
 
-	mp->seg = malloc(sizeof(struct segment)*ssize);
+	mp->seg = (struct segment *)malloc(sizeof(struct segment)*ssize);
 	
 	mp->seg_num = ssize;
 
@@ -101,15 +102,16 @@ smap_init(int capacity , int level, int hash_type)
 		rc = pthread_rwlock_init(&(mp->seg[i].seg_lock), NULL);
 		if (rc != 0)
 			return (NULL);
-		sp = malloc(sizeof(struct slot) * cap);
-		if (sp == NULL)
+		bp = (struct bucket *)malloc(sizeof(struct bucket) * cap);
+		if (bp == NULL)
 		        return (NULL);
 		
-		for (i = 0; i < cap; i++) {
-			sp[i].counter = 0;
-			RB_INIT(&(sp[i].root));
+		for (j = 0; j < cap; j++) {
+			bp[j].counter = 0;
+			RB_INIT(&(bp[j].root));
 		}
-		mp->seg[i].slot_num = cap;		
+		mp->seg[i].bucket_num = cap;	
+		mp->seg[i].bp = bp;	
 	}
 
 
@@ -121,21 +123,26 @@ static struct segment *
 get_segment(struct smap *mp, int hash)
 {
 	int seg_hash;
-	seg_hash = (((unsigned int)hash) >> mp->segment_shift) & mp->segment_shift;
+	
+	/* right shift 32bit problem */
+	uint64_t shit = hash & 0x7FFFFFFF;
+
+	seg_hash = (shit >> mp->seg_shift) & (mp->seg_shift);
 	return mp->seg + seg_hash;
 }
 
-static struct slot *
-get_slot(struct segment *seg, int hash)
+static struct bucket *
+get_bucket(struct segment *seg, int hash)
 {
-	return &(seg->sp[hash & (seg->slot_num - 1)]);
+	int index = hash & (seg->bucket_num - 1);
+	return &(seg->bp[index]);
 }
 
 
 int
 smap_insert(struct smap *mp, uint64_t key, void *value)
 {
-	struct slot *sp;
+	struct bucket *bp;
 	struct SMAP_ENT *entry;
 	struct SMAP_ENT *rc;
 	int h;
@@ -147,9 +154,9 @@ smap_insert(struct smap *mp, uint64_t key, void *value)
 	h = hash((int)key);
 	seg = get_segment(mp, h);
 
-	sp = get_slot(seg, h);
+	bp = get_bucket(seg, h);
 
-	entry = malloc(sizeof(struct SMAP_ENT));
+	entry = (struct SMAP_ENT *)malloc(sizeof(struct SMAP_ENT));
 	if (entry == NULL)
 		return (SMAP_OOM);
 	
@@ -159,7 +166,7 @@ smap_insert(struct smap *mp, uint64_t key, void *value)
 	pthread_rwlock_wrlock(&(seg->seg_lock));
 	
 	seg->counter++;
-	rc = RB_INSERT(SMAP_TREE, &(sp->root), entry);
+	rc = RB_INSERT(SMAP_TREE, &(bp->root), entry);
 
 	pthread_rwlock_unlock(&(seg->seg_lock));
 
@@ -177,7 +184,7 @@ smap_insert(struct smap *mp, uint64_t key, void *value)
 int
 smap_delete(struct smap *mp, uint64_t key)
 {
-	struct slot *sp;
+	struct bucket *bp;
 	struct SMAP_ENT entry;
 	struct SMAP_ENT *rc;
 	int h;
@@ -189,20 +196,20 @@ smap_delete(struct smap *mp, uint64_t key)
 	h = hash((int)key);
 	seg = get_segment(mp, h);
 
-	sp = get_slot(seg, h);
+	bp = get_bucket(seg, h);
 	
 	entry.key = key;
 	
 	pthread_rwlock_wrlock(&(seg->seg_lock));
 	
-	rc = RB_FIND(SMAP_TREE, &(sp->root), &entry);
+	rc = RB_FIND(SMAP_TREE, &(bp->root), &entry);
 	if (rc == NULL) {
 		pthread_rwlock_unlock(&(seg->seg_lock));
 		return (SMAP_NONEXISTENT_KEY);
 	}
-	RB_REMOVE(SMAP_TREE, &(sp->root), rc);
+	RB_REMOVE(SMAP_TREE, &(bp->root), rc);
 
-	sp->counter--;
+	bp->counter--;
 	pthread_rwlock_unlock(&(seg->seg_lock));
 	
 	free(rc);
@@ -232,7 +239,7 @@ smap_get_elm_num(struct smap *mp)
 void *
 smap_get(struct smap *mp, uint64_t key)
 {
-	struct slot *sp;
+	struct bucket *bp;
 	struct SMAP_ENT entry;
 	struct SMAP_ENT *rc;
 	struct SMAP_ENT *np;
@@ -245,12 +252,12 @@ smap_get(struct smap *mp, uint64_t key)
 	h = hash((int)key);
 	
 	seg = get_segment(mp, h);
-	sp = get_slot(seg, h);
+	bp = get_bucket(seg, h);
 	
 	entry.key = key;
 	
 	pthread_rwlock_rdlock(&(seg->seg_lock));
-	rc = RB_FIND(SMAP_TREE, &(sp->root), &entry);
+	rc = RB_FIND(SMAP_TREE, &(bp->root), &entry);
 	pthread_rwlock_unlock(&(seg->seg_lock));
 	if (rc == NULL) {
 		return (NULL);
@@ -266,7 +273,7 @@ smap_get(struct smap *mp, uint64_t key)
 int
 smap_update(struct smap *mp, uint64_t key, void *data)
 {
-	struct slot *sp;
+	struct bucket *bp;
 	struct SMAP_ENT entry;
 	struct SMAP_ENT *rc;
 	int h;
@@ -275,14 +282,14 @@ smap_update(struct smap *mp, uint64_t key, void *data)
 	if (mp == NULL)
 		return (SMAP_GENERAL_ERROR);
 
-	h = hash((int)key) % (mp->slot_num);
+	h = hash((int)key) % (mp->bucket_num);
 	seg = get_segment(mp, h);
-	sp = get_slot(seg, h);
+	bp = get_bucket(seg, h);
 	
 	entry.key = key;
 	
 	pthread_rwlock_rdlock(&(seg->seg_lock));
-	rc = RB_FIND(SMAP_TREE, &(sp->root), &entry);
+	rc = RB_FIND(SMAP_TREE, &(bp->root), &entry);
 	
 	/* if no entry */
 	if (rc == NULL) {
@@ -303,7 +310,7 @@ smap_update(struct smap *mp, uint64_t key, void *data)
 int
 smap_traverse(struct smap *mp, void (*routine)(uint64_t, void *),uint32_t start)
 {
-	struct slot *sp;
+	struct bucket *bp;
 	struct SMAP_ENT *np;
 	struct SMAP_ENT *tnp;
 	int i;
@@ -311,21 +318,21 @@ smap_traverse(struct smap *mp, void (*routine)(uint64_t, void *),uint32_t start)
 	
 	if (mp == NULL)
 		return (SMAP_GENERAL_ERROR);
-	if (start >= mp->slot_num)
+	if (start >= mp->bucket_num)
 		return (SMAP_GENERAL_ERROR);
 		
-	for (i = 0; i < mp->slot_num; i++) {
-		sp = &(mp->sp[(i + start) % (mp->slot_num)]);
+	for (i = 0; i < mp->bucket_num; i++) {
+		bp = &(mp->bp[(i + start) % (mp->bucket_num)]);
 		
-			pthread_rwlock_wrlock(&(sp->slot_lock));
-		while (!RB_EMPTY(&(sp->root))) {
-			for (np = RB_MIN(SMAP_TREE, &(sp->root));
-				np && ((tnp) = RB_NEXT(SMAP_TREE, &(sp->root), np), 1); np = tnp) {
+			pthread_rwlock_wrlock(&(bp->bucket_lock));
+		while (!RB_EMPTY(&(bp->root))) {
+			for (np = RB_MIN(SMAP_TREE, &(bp->root));
+				np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp->root), np), 1); np = tnp) {
 				routine(np->key, np->data);
 			}
 		}
 		
-			pthread_rwlock_unlock(&(sp->slot_lock));
+			pthread_rwlock_unlock(&(bp->bucket_lock));
 	}
 }
 */
@@ -342,6 +349,13 @@ main(void)
 	if (map == NULL)
 		printf("error map NULL \n");
 
+	for (i = 0; i < 10240; i++) {
+		rc = smap_insert(map, i, NULL);
+		if (rc < 0){
+			printf("i: %d, error: %d\n", i, rc);
+			break;
+		}
+	}
 	for (i = 0; i < 10240; i++) {
 		rc = smap_insert(map, i, NULL);
 		if (rc < 0){
