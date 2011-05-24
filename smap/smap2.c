@@ -73,14 +73,14 @@ rdlock(pthread_rwlock_t *lock)
 void
 wrlock(pthread_rwlock_t *lock)
 {
-	//printf("lock:%p\n",lock);
+	printf("lock:%p\n",lock);
 	pthread_rwlock_wrlock(lock);
 }
 
 void
 unlock(pthread_rwlock_t *lock)
 {
-	//printf("unlock:%p\n",lock);
+	printf("unlock:%p\n",lock);
 	pthread_rwlock_unlock(lock);
 }
 
@@ -196,8 +196,6 @@ smap_insert(struct smap *mp, uint64_t key, void *value)
 		seg->pool_size--;
 	} else {
 		entry = (struct SMAP_ENT *)malloc(sizeof(struct SMAP_ENT));
-		SLIST_INSERT_HEAD(&(seg->mpool), entry, mem_ent);
-		seg->pool_size++;
 	}
 	if (entry == NULL)
 		return (SMAP_OOM);
@@ -376,7 +374,8 @@ smap_traverse(struct smap *mp, void (*routine)(struct smap *, uint64_t, void *),
 		for (j = 0; j < seg->bucket_num; j++) {
 			while (!RB_EMPTY(&(bp[j].root))) {
 				for (np = RB_MIN(SMAP_TREE, &(bp[j].root));
-					np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp[j]->root), np), 1); np = tnp) {
+					np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp[j].root), np), 1);
+					np = tnp) {
 					routine(mp, np->key, np->data);
 				}
 			}
@@ -407,7 +406,7 @@ main(void)
 	if (map == NULL)
 		printf("error map NULL \n");
 
-	for (i = 0; i < 10; i++) {
+	for (i = 0; i < 10260; i++) {
 		rc = smap_insert(map, i, "haha");
 		if (rc < 0){
 			printf("i: %d, error: %d\n", i, rc);
@@ -422,6 +421,6 @@ main(void)
 		}
 	}
 	smap_traverse(map, test, 0);
-	smap_traverse(map, test, 0);
+//	smap_traverse(map, test, 0);
 	return (0);
 }
