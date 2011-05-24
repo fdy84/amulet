@@ -16,16 +16,17 @@ struct SMAP_ENT{
 };
 
 RB_HEAD(SMAP_TREE, SMAP_ENT);
-struct bucket {
+struct BUCKET {
         uint64_t counter;
         struct SMAP_TREE root;
 };
+SLIST_HEAD(MPOOL_HEAD, SMAP_ENT);
 
-struct segment {
+struct SEGMENT {
+		struct MPOOL_HEAD	*mpool;
 		uint64_t	counter;
 		int	bucket_num;
-		struct bucket *bp;
-		SLIST_HEAD(, SMAP_ENT)	mpool;
+		struct BUCKET *bp;
 		int pool_size;
         pthread_rwlock_t seg_lock;
 };
@@ -65,7 +66,7 @@ RB_PROTOTYPE_STATIC(SMAP_TREE, SMAP_ENT, val_ent, cmp);
 RB_GENERATE_STATIC(SMAP_TREE, SMAP_ENT, val_ent, cmp);
 
 
-void
+static void
 rdlock(pthread_rwlock_t *lock)
 {
 	int rc;
@@ -76,11 +77,11 @@ rdlock(pthread_rwlock_t *lock)
 	}
 }
 
-void
+static void
 wrlock(pthread_rwlock_t *lock)
 {
 	int rc;
-	printf("lock:%p\n",lock);
+//	printf("lock:%p\n",lock);
 	rc = pthread_rwlock_wrlock(lock);
 	if (rc != 0) {
 		printf("lock! error: %d: %s \n", __LINE__, strerror(rc));
@@ -88,11 +89,11 @@ wrlock(pthread_rwlock_t *lock)
 	}
 }
 
-void
+static void
 unlock(pthread_rwlock_t *lock)
 {
 	int rc;
-	printf("unlock:%p\n",lock);
+//	printf("unlock:%p\n",lock);
 	rc = pthread_rwlock_unlock(lock);
 	if (rc != 0) {
 		printf("lock! error: %d: %s \n", __LINE__, strerror(rc));
@@ -100,6 +101,30 @@ unlock(pthread_rwlock_t *lock)
 	}
 }
 
+static struct SMAP_ENT *
+mpool_alloc(struct SEGMENT *seg)
+{
+	struct SMAP_ENT *entry;
+	if (!SLIST_EMPTY(seg->mpool)) {
+		entry = SLIST_FIRST(seg->mpool);
+		SLIST_REMOVE_HEAD(seg->mpool, mem_ent);
+		seg->pool_size--;
+	} else {
+		entry = (struct SMAP_ENT *)malloc(sizeof(struct SMAP_ENT));
+	}
+	return entry;
+}
+
+static void
+mpool_free(struct SEGMENT *seg, struct SMAP_ENT *ptr)
+{
+	if (seg->pool_size < seg->bucket_num ) {
+		SLIST_INSERT_HEAD(seg->mpool, ptr, mem_ent);
+		seg->pool_size++;
+	} else {
+		free(ptr);
+	}
+}
 /*
  * hash_type: number or string
  * level: The concurrency level
@@ -107,7 +132,7 @@ unlock(pthread_rwlock_t *lock)
 struct smap *
 smap_init(int capacity , int level, int pool_size, int hash_type)
 {
-	struct bucket *bp;
+	struct BUCKET *bp;
 	struct smap *mp;
 	int i, j;
 	int rc;
@@ -135,8 +160,7 @@ smap_init(int capacity , int level, int pool_size, int hash_type)
 	while (cap < c)
 		cap <<= 1;
 
-	mp->seg = (struct segment *)malloc(sizeof(struct segment)*ssize);
-	
+	mp->seg = (struct SEGMENT *)malloc(sizeof(struct SEGMENT)*ssize);
 	mp->seg_num = ssize;
 
 	for (i = 0; i < ssize; i++) {
@@ -144,7 +168,7 @@ smap_init(int capacity , int level, int pool_size, int hash_type)
 		rc = pthread_rwlock_init(&(mp->seg[i].seg_lock), &attr);
 		if (rc != 0)
 			return (NULL);
-		bp = (struct bucket *)malloc(sizeof(struct bucket) * cap);
+		bp = (struct BUCKET *)malloc(sizeof(struct BUCKET) * cap);
 		if (bp == NULL)
 		        return (NULL);
 		
@@ -154,22 +178,84 @@ smap_init(int capacity , int level, int pool_size, int hash_type)
 		}
 		mp->seg[i].bucket_num = cap;	
 		mp->seg[i].bp = bp;
-		SLIST_INIT(&(mp->seg[i].mpool));
+		mp->seg[i].mpool = (struct MPOOL_HEAD *)malloc(sizeof(struct MPOOL_HEAD));
+		SLIST_INIT(mp->seg[i].mpool);
 		if (pool_size == 0)
 			pool_size = cap/2;
 		for (j = 0; j < pool_size; j++) {
 			struct SMAP_ENT *new_mem_ent = (struct SMAP_ENT *)malloc(sizeof(struct SMAP_ENT));
-			SLIST_INSERT_HEAD(&(mp->seg[i].mpool), new_mem_ent, mem_ent);
+			SLIST_INSERT_HEAD(mp->seg[i].mpool, new_mem_ent, mem_ent);
 		}
 		mp->seg[i].pool_size = pool_size;
 	}
-
-
-	
 	return mp;
 }
 
-static struct segment *
+void
+smap_clear(struct smap *mp, int start)
+{
+	int i, j;
+	struct SEGMENT *seg;
+	struct BUCKET *old_bp;
+	struct BUCKET *new_bp;
+	struct BUCKET *bp;
+	struct SMAP_ENT *np, *tnp;
+	int pool_size = 0;
+	struct MPOOL_HEAD	*mpool, *tmpool;
+	
+	mpool = (struct MPOOL_HEAD *)malloc(sizeof(struct MPOOL_HEAD));
+
+	for (i = 0; i < mp->seg_num; i++) {
+		SLIST_INIT(mpool);
+		seg = &(mp->seg[(i + start) % (mp->seg_num)]);
+
+		new_bp = (struct BUCKET *)malloc(seg->bucket_num * sizeof(struct BUCKET));
+		for (j = 0; j < seg->bucket_num; j++) {
+			new_bp[j].counter = 0;
+			RB_INIT(&(new_bp[j].root));
+		}
+		
+		wrlock(&(seg->seg_lock));
+		old_bp = seg->bp;
+		seg->bp = new_bp;
+		unlock(&(seg->seg_lock));
+		for (j = 0; j < seg->bucket_num; j++) {
+			bp = &(seg->bp[j]);
+			for (np = RB_MIN(SMAP_TREE, &(bp->root));
+				np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp->root), np), 1);
+				np = tnp) {
+				RB_REMOVE(SMAP_TREE, &(bp->root), np);
+				SLIST_INSERT_HEAD(mpool, np, mem_ent);
+				
+				if (pool_size < seg->bucket_num)
+					pool_size++;
+				else
+					free(np);
+			}
+		}
+		wrlock(&(seg->seg_lock));
+		if (seg->pool_size >= pool_size) {
+			unlock(&(seg->seg_lock));
+			SLIST_FOREACH_SAFE(np, mpool, mem_ent, tnp) {
+				free(np);
+			}
+		} else {
+			tmpool = seg->mpool;
+			seg->mpool = mpool;
+			seg->pool_size = pool_size;
+			unlock(&(seg->seg_lock));
+			SLIST_FOREACH_SAFE(np, tmpool, mem_ent, tnp) {
+				free(np);
+			}
+			free(tmpool);
+			mpool = tmpool;
+		}
+		pool_size = 0;
+	}
+}
+
+
+static struct SEGMENT *
 get_segment(struct smap *mp, int hash)
 {
 	int seg_hash;
@@ -181,8 +267,8 @@ get_segment(struct smap *mp, int hash)
 	return mp->seg + seg_hash;
 }
 
-static struct bucket *
-get_bucket(struct segment *seg, int hash)
+static struct BUCKET *
+get_bucket(struct SEGMENT *seg, int hash)
 {
 	int index = hash & (seg->bucket_num - 1);
 	return &(seg->bp[index]);
@@ -192,11 +278,11 @@ get_bucket(struct segment *seg, int hash)
 int
 smap_insert(struct smap *mp, uint64_t key, void *value, int lock)
 {
-	struct bucket *bp;
+	struct BUCKET *bp;
 	struct SMAP_ENT *entry;
 	struct SMAP_ENT *rc;
 	int h;
-	struct segment *seg;
+	struct SEGMENT *seg;
 
 	if (mp == NULL)
 		return (SMAP_GENERAL_ERROR);
@@ -208,13 +294,7 @@ smap_insert(struct smap *mp, uint64_t key, void *value, int lock)
 	if (lock)
 		wrlock(&(seg->seg_lock));
 	
-	if (!SLIST_EMPTY(&(seg->mpool))) {
-		entry = SLIST_FIRST(&(seg->mpool));
-		SLIST_REMOVE_HEAD(&(seg->mpool), mem_ent);
-		seg->pool_size--;
-	} else {
-		entry = (struct SMAP_ENT *)malloc(sizeof(struct SMAP_ENT));
-	}
+	entry = mpool_alloc(seg);
 	if (entry == NULL) {
 		if (lock)
 			unlock(&(seg->seg_lock));
@@ -242,11 +322,11 @@ smap_insert(struct smap *mp, uint64_t key, void *value, int lock)
 int
 smap_delete(struct smap *mp, uint64_t key, int lock)
 {
-	struct bucket *bp;
+	struct BUCKET *bp;
 	struct SMAP_ENT entry;
 	struct SMAP_ENT *res;
 	int h;
-	struct segment *seg;
+	struct SEGMENT *seg;
 
 	if (mp == NULL)
 		return (SMAP_GENERAL_ERROR);
@@ -271,13 +351,7 @@ smap_delete(struct smap *mp, uint64_t key, int lock)
 
 	bp->counter--;
 
-	if (seg->pool_size < seg->bucket_num ) {
-		SLIST_INSERT_HEAD(&(seg->mpool),
-			res, mem_ent);
-		seg->pool_size++;
-	} else {
-		free(res);
-	}
+	mpool_free(seg, res);
 	if (lock)
 		unlock(&(seg->seg_lock));
 	return (SMAP_OK);
@@ -305,12 +379,12 @@ smap_get_elm_num(struct smap *mp)
 void *
 smap_get(struct smap *mp, uint64_t key)
 {
-	struct bucket *bp;
+	struct BUCKET *bp;
 	struct SMAP_ENT entry;
 	struct SMAP_ENT *rc;
 	struct SMAP_ENT *np;
 	int h;
-	struct segment *seg;
+	struct SEGMENT *seg;
 
 	if (mp == NULL)
 		return (NULL);
@@ -339,11 +413,11 @@ smap_get(struct smap *mp, uint64_t key)
 int
 smap_update(struct smap *mp, uint64_t key, void *data)
 {
-	struct bucket *bp;
+	struct BUCKET *bp;
 	struct SMAP_ENT entry;
 	struct SMAP_ENT *rc;
 	int h;
-	struct segment *seg;
+	struct SEGMENT *seg;
 
 	if (mp == NULL)
 		return (SMAP_GENERAL_ERROR);
@@ -374,13 +448,14 @@ smap_update(struct smap *mp, uint64_t key, void *data)
  */
 
 int
-smap_traverse(struct smap *mp, void (*routine)(struct smap *, uint64_t, void *),uint32_t start)
+smap_traverse(struct smap *mp, int (*routine)(struct smap *, uint64_t, void *),uint32_t start)
 {
-	struct bucket *bp;
+	struct BUCKET *bp;
 	struct SMAP_ENT *np;
 	struct SMAP_ENT *tnp;
 	int i, j;
-	struct segment *seg;
+	int rc;
+	struct SEGMENT *seg;
 	
 	if (mp == NULL)
 		return (SMAP_GENERAL_ERROR);
@@ -392,26 +467,44 @@ smap_traverse(struct smap *mp, void (*routine)(struct smap *, uint64_t, void *),
 		bp = seg->bp;
 		wrlock(&(seg->seg_lock));
 		for (j = 0; j < seg->bucket_num; j++) {
-			while (!RB_EMPTY(&(bp[j].root))) {
-				for (np = RB_MIN(SMAP_TREE, &(bp[j].root));
-					np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp[j].root), np), 1);
-					np = tnp) {
-					routine(mp, np->key, np->data);
+			bp = &(seg->bp[j]);
+
+			for (np = RB_MIN(SMAP_TREE, &(bp->root));
+				np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp->root), np), 1);
+				np = tnp) {
+				rc = routine(mp, np->key, np->data);
+				if (rc == SMAP_BREAK) {
+					unlock(&(seg->seg_lock));
+					goto out;
 				}
 			}
 		}
 		unlock(&(seg->seg_lock));
 	}
+	out:
+	return 0;
 }
 
-void
+int
 test(struct smap *mp, uint64_t key, void *value)
 {
-	if (SMAP_OK == smap_delete(mp, key, 0))
-		printf("key = %ld, value = %s\n", key, (char *)value);
-	else
-		printf("no key!\n");
+	printf("key = %ld, value = %s\n", key, (char *)value);
+
+	SMAP_OK;
 }
+
+int
+test1(struct smap *mp, uint64_t key, void *value)
+{
+	if (SMAP_OK == smap_delete(mp, key, 0)) {
+		printf("key = %ld, value = %s\n", key, (char *)value);
+	} else {
+		/* unreachable because travser won't reached */
+		printf("no key!\n");
+	}
+	SMAP_OK;
+}
+
 
 int
 main(void)
@@ -425,21 +518,24 @@ main(void)
 	if (map == NULL)
 		printf("error map NULL \n");
 
-	for (i = 0; i < 10260; i++) {
+	for (i = 0; i < 10; i++) {
 		rc = smap_insert(map, i, "haha", 1);
 		if (rc < 0){
 			printf("i: %d, error: %d\n", i, rc);
 			break;
 		}
 	}
+	
+	smap_clear(map, 0);
+	
 	for (i = 0; i < 10; i++) {
-		rc = smap_insert(map, i, NULL, 1);
+		rc = smap_insert(map, i, "hoho", 1);
 		if (rc < 0){
 			printf("i: %d, error: %d\n", i, rc);
 			break;
 		}
 	}
+	smap_traverse(map, test1, 0);
 	smap_traverse(map, test, 0);
-//	smap_traverse(map, test, 0);
 	return (0);
 }
