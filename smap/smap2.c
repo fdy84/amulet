@@ -102,13 +102,13 @@ unlock(pthread_rwlock_t *lock)
 }
 
 static struct SMAP_ENT *
-mpool_alloc(struct SEGMENT *seg)
+mpool_alloc(struct SEGMENT *sp)
 {
 	struct SMAP_ENT *entry;
-	if (!SLIST_EMPTY(seg->mpool)) {
-		entry = SLIST_FIRST(seg->mpool);
-		SLIST_REMOVE_HEAD(seg->mpool, mem_ent);
-		seg->pool_size--;
+	if (!SLIST_EMPTY(sp->mpool)) {
+		entry = SLIST_FIRST(sp->mpool);
+		SLIST_REMOVE_HEAD(sp->mpool, mem_ent);
+		sp->pool_size--;
 	} else {
 		entry = (struct SMAP_ENT *)malloc(sizeof(struct SMAP_ENT));
 	}
@@ -116,11 +116,11 @@ mpool_alloc(struct SEGMENT *seg)
 }
 
 static void
-mpool_free(struct SEGMENT *seg, struct SMAP_ENT *ptr)
+mpool_free(struct SEGMENT *sp, struct SMAP_ENT *ptr)
 {
-	if (seg->pool_size < seg->bucket_num ) {
-		SLIST_INSERT_HEAD(seg->mpool, ptr, mem_ent);
-		seg->pool_size++;
+	if (sp->pool_size < sp->bucket_num ) {
+		SLIST_INSERT_HEAD(sp->mpool, ptr, mem_ent);
+		sp->pool_size++;
 	} else {
 		free(ptr);
 	}
@@ -191,11 +191,15 @@ smap_init(int capacity , int level, int pool_size, int hash_type)
 	return mp;
 }
 
+
+/*
+ * clear a map, it would not always lock, just realloc the bucket and mpool.
+ */
 void
 smap_clear(struct smap *mp, int start)
 {
 	int i, j;
-	struct SEGMENT *seg;
+	struct SEGMENT *sp;
 	struct BUCKET *old_bp;
 	struct BUCKET *new_bp;
 	struct BUCKET *bp;
@@ -207,43 +211,43 @@ smap_clear(struct smap *mp, int start)
 
 	for (i = 0; i < mp->seg_num; i++) {
 		SLIST_INIT(mpool);
-		seg = &(mp->seg[(i + start) % (mp->seg_num)]);
+		sp = &(mp->seg[(i + start) % (mp->seg_num)]);
 
-		new_bp = (struct BUCKET *)malloc(seg->bucket_num * sizeof(struct BUCKET));
-		for (j = 0; j < seg->bucket_num; j++) {
+		new_bp = (struct BUCKET *)malloc(sp->bucket_num * sizeof(struct BUCKET));
+		for (j = 0; j < sp->bucket_num; j++) {
 			new_bp[j].counter = 0;
 			RB_INIT(&(new_bp[j].root));
 		}
 		
-		wrlock(&(seg->seg_lock));
-		old_bp = seg->bp;
-		seg->bp = new_bp;
-		unlock(&(seg->seg_lock));
-		for (j = 0; j < seg->bucket_num; j++) {
-			bp = &(seg->bp[j]);
+		wrlock(&(sp->seg_lock));
+		old_bp = sp->bp;
+		sp->bp = new_bp;
+		unlock(&(sp->seg_lock));
+		for (j = 0; j < sp->bucket_num; j++) {
+			bp = &(sp->bp[j]);
 			for (np = RB_MIN(SMAP_TREE, &(bp->root));
 				np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp->root), np), 1);
 				np = tnp) {
 				RB_REMOVE(SMAP_TREE, &(bp->root), np);
 				SLIST_INSERT_HEAD(mpool, np, mem_ent);
 				
-				if (pool_size < seg->bucket_num)
+				if (pool_size < sp->bucket_num)
 					pool_size++;
 				else
 					free(np);
 			}
 		}
-		wrlock(&(seg->seg_lock));
-		if (seg->pool_size >= pool_size) {
-			unlock(&(seg->seg_lock));
+		wrlock(&(sp->seg_lock));
+		if (sp->pool_size >= pool_size) {
+			unlock(&(sp->seg_lock));
 			SLIST_FOREACH_SAFE(np, mpool, mem_ent, tnp) {
 				free(np);
 			}
 		} else {
-			tmpool = seg->mpool;
-			seg->mpool = mpool;
-			seg->pool_size = pool_size;
-			unlock(&(seg->seg_lock));
+			tmpool = sp->mpool;
+			sp->mpool = mpool;
+			sp->pool_size = pool_size;
+			unlock(&(sp->seg_lock));
 			SLIST_FOREACH_SAFE(np, tmpool, mem_ent, tnp) {
 				free(np);
 			}
@@ -268,10 +272,10 @@ get_segment(struct smap *mp, int hash)
 }
 
 static struct BUCKET *
-get_bucket(struct SEGMENT *seg, int hash)
+get_bucket(struct SEGMENT *sp, int hash)
 {
-	int index = hash & (seg->bucket_num - 1);
-	return &(seg->bp[index]);
+	int index = hash & (sp->bucket_num - 1);
+	return &(sp->bp[index]);
 }
 
 
@@ -282,32 +286,32 @@ smap_insert(struct smap *mp, uint64_t key, void *value, int lock)
 	struct SMAP_ENT *entry;
 	struct SMAP_ENT *rc;
 	int h;
-	struct SEGMENT *seg;
+	struct SEGMENT *sp;
 
 	if (mp == NULL)
 		return (SMAP_GENERAL_ERROR);
 
 	h = hash((int)key);
-	seg = get_segment(mp, h);
-	bp = get_bucket(seg, h);
+	sp = get_segment(mp, h);
+	bp = get_bucket(sp, h);
 	
 	if (lock)
-		wrlock(&(seg->seg_lock));
+		wrlock(&(sp->seg_lock));
 	
-	entry = mpool_alloc(seg);
+	entry = mpool_alloc(sp);
 	if (entry == NULL) {
 		if (lock)
-			unlock(&(seg->seg_lock));
+			unlock(&(sp->seg_lock));
 		return (SMAP_OOM);
 	}
 	
 	entry->key = key;
 	entry->data = value;
 	
-	seg->counter++;
+	sp->counter++;
 	rc = RB_INSERT(SMAP_TREE, &(bp->root), entry);
 	if (lock)
-		unlock(&(seg->seg_lock));
+		unlock(&(sp->seg_lock));
 
 	if (rc == NULL)
 		return (SMAP_OK);
@@ -326,34 +330,34 @@ smap_delete(struct smap *mp, uint64_t key, int lock)
 	struct SMAP_ENT entry;
 	struct SMAP_ENT *res;
 	int h;
-	struct SEGMENT *seg;
+	struct SEGMENT *sp;
 
 	if (mp == NULL)
 		return (SMAP_GENERAL_ERROR);
 
 	h = hash((int)key);
-	seg = get_segment(mp, h);
+	sp = get_segment(mp, h);
 
-	bp = get_bucket(seg, h);
+	bp = get_bucket(sp, h);
 	
 	entry.key = key;
 	
 	if (lock)
-		wrlock(&(seg->seg_lock));
+		wrlock(&(sp->seg_lock));
 	
 	res = RB_FIND(SMAP_TREE, &(bp->root), &entry);
 	if (res == NULL) {
 		if (lock)
-			unlock(&(seg->seg_lock));
+			unlock(&(sp->seg_lock));
 		return (SMAP_NONEXISTENT_KEY);
 	}
 	RB_REMOVE(SMAP_TREE, &(bp->root), res);
 
 	bp->counter--;
 
-	mpool_free(seg, res);
+	mpool_free(sp, res);
 	if (lock)
-		unlock(&(seg->seg_lock));
+		unlock(&(sp->seg_lock));
 	return (SMAP_OK);
 }
 
@@ -384,21 +388,21 @@ smap_get(struct smap *mp, uint64_t key)
 	struct SMAP_ENT *rc;
 	struct SMAP_ENT *np;
 	int h;
-	struct SEGMENT *seg;
+	struct SEGMENT *sp;
 
 	if (mp == NULL)
 		return (NULL);
 
 	h = hash((int)key);
 	
-	seg = get_segment(mp, h);
-	bp = get_bucket(seg, h);
+	sp = get_segment(mp, h);
+	bp = get_bucket(sp, h);
 	
 	entry.key = key;
 	
-	rdlock(&(seg->seg_lock));
+	rdlock(&(sp->seg_lock));
 	rc = RB_FIND(SMAP_TREE, &(bp->root), &entry);
-	unlock(&(seg->seg_lock));
+	unlock(&(sp->seg_lock));
 	if (rc == NULL) {
 		return (NULL);
 	} else {
@@ -417,27 +421,27 @@ smap_update(struct smap *mp, uint64_t key, void *data)
 	struct SMAP_ENT entry;
 	struct SMAP_ENT *rc;
 	int h;
-	struct SEGMENT *seg;
+	struct SEGMENT *sp;
 
 	if (mp == NULL)
 		return (SMAP_GENERAL_ERROR);
 
 	h = hash((int)key) % (mp->bucket_num);
-	seg = get_segment(mp, h);
-	bp = get_bucket(seg, h);
+	sp = get_segment(mp, h);
+	bp = get_bucket(sp, h);
 	
 	entry.key = key;
 	
-	rdlock(&(seg->seg_lock));
+	rdlock(&(sp->seg_lock));
 	rc = RB_FIND(SMAP_TREE, &(bp->root), &entry);
 	
 	/* if no entry */
 	if (rc == NULL) {
-		unlock(&(seg->seg_lock));
+		unlock(&(sp->seg_lock));
 		return (SMAP_NONEXISTENT_KEY);
 	} else {
 		rc->data = data;
-		unlock(&(seg->seg_lock));
+		unlock(&(sp->seg_lock));
 		return (SMAP_OK);
 	}
 	
@@ -455,7 +459,7 @@ smap_traverse(struct smap *mp, int (*routine)(struct smap *, uint64_t, void *),u
 	struct SMAP_ENT *tnp;
 	int i, j;
 	int rc;
-	struct SEGMENT *seg;
+	struct SEGMENT *sp;
 	
 	if (mp == NULL)
 		return (SMAP_GENERAL_ERROR);
@@ -463,23 +467,23 @@ smap_traverse(struct smap *mp, int (*routine)(struct smap *, uint64_t, void *),u
 		return (SMAP_GENERAL_ERROR);
 		
 	for (i = 0; i < mp->seg_num; i++) {
-		seg = &(mp->seg[(i + start) % (mp->seg_num)]);
-		bp = seg->bp;
-		wrlock(&(seg->seg_lock));
-		for (j = 0; j < seg->bucket_num; j++) {
-			bp = &(seg->bp[j]);
+		sp = &(mp->seg[(i + start) % (mp->seg_num)]);
+		bp = sp->bp;
+		wrlock(&(sp->seg_lock));
+		for (j = 0; j < sp->bucket_num; j++) {
+			bp = &(sp->bp[j]);
 
 			for (np = RB_MIN(SMAP_TREE, &(bp->root));
 				np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp->root), np), 1);
 				np = tnp) {
 				rc = routine(mp, np->key, np->data);
 				if (rc == SMAP_BREAK) {
-					unlock(&(seg->seg_lock));
+					unlock(&(sp->seg_lock));
 					goto out;
 				}
 			}
 		}
-		unlock(&(seg->seg_lock));
+		unlock(&(sp->seg_lock));
 	}
 	out:
 	return 0;
@@ -518,7 +522,7 @@ main(void)
 	if (map == NULL)
 		printf("error map NULL \n");
 
-	for (i = 0; i < 10; i++) {
+	for (i = 0; i < 10240; i++) {
 		rc = smap_insert(map, i, "haha", 1);
 		if (rc < 0){
 			printf("i: %d, error: %d\n", i, rc);
@@ -528,7 +532,7 @@ main(void)
 	
 	smap_clear(map, 0);
 	
-	for (i = 0; i < 10; i++) {
+	for (i = 0; i < 10240; i++) {
 		rc = smap_insert(map, i, "hoho", 1);
 		if (rc < 0){
 			printf("i: %d, error: %d\n", i, rc);
