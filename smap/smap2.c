@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <pthread.h>
 
 #include "smap2.h"
@@ -67,21 +68,36 @@ RB_GENERATE_STATIC(SMAP_TREE, SMAP_ENT, val_ent, cmp);
 void
 rdlock(pthread_rwlock_t *lock)
 {
-	pthread_rwlock_rdlock(lock);
+	int rc;
+	rc = pthread_rwlock_rdlock(lock);
+	if (rc != 0) {
+		printf("lock! error: %d: %s \n", __LINE__, strerror(rc));
+		exit(1);
+	}
 }
 
 void
 wrlock(pthread_rwlock_t *lock)
 {
+	int rc;
 	printf("lock:%p\n",lock);
-	pthread_rwlock_wrlock(lock);
+	rc = pthread_rwlock_wrlock(lock);
+	if (rc != 0) {
+		printf("lock! error: %d: %s \n", __LINE__, strerror(rc));
+		exit(1);
+	}
 }
 
 void
 unlock(pthread_rwlock_t *lock)
 {
+	int rc;
 	printf("unlock:%p\n",lock);
-	pthread_rwlock_unlock(lock);
+	rc = pthread_rwlock_unlock(lock);
+	if (rc != 0) {
+		printf("lock! error: %d: %s \n", __LINE__, strerror(rc));
+		exit(1);
+	}
 }
 
 /*
@@ -174,7 +190,7 @@ get_bucket(struct segment *seg, int hash)
 
 
 int
-smap_insert(struct smap *mp, uint64_t key, void *value)
+smap_insert(struct smap *mp, uint64_t key, void *value, int lock)
 {
 	struct bucket *bp;
 	struct SMAP_ENT *entry;
@@ -188,7 +204,9 @@ smap_insert(struct smap *mp, uint64_t key, void *value)
 	h = hash((int)key);
 	seg = get_segment(mp, h);
 	bp = get_bucket(seg, h);
-	wrlock(&(seg->seg_lock));
+	
+	if (lock)
+		wrlock(&(seg->seg_lock));
 	
 	if (!SLIST_EMPTY(&(seg->mpool))) {
 		entry = SLIST_FIRST(&(seg->mpool));
@@ -197,17 +215,19 @@ smap_insert(struct smap *mp, uint64_t key, void *value)
 	} else {
 		entry = (struct SMAP_ENT *)malloc(sizeof(struct SMAP_ENT));
 	}
-	if (entry == NULL)
+	if (entry == NULL) {
+		if (lock)
+			unlock(&(seg->seg_lock));
 		return (SMAP_OOM);
+	}
 	
 	entry->key = key;
 	entry->data = value;
 	
 	seg->counter++;
 	rc = RB_INSERT(SMAP_TREE, &(bp->root), entry);
-
-	unlock(&(seg->seg_lock));
-
+	if (lock)
+		unlock(&(seg->seg_lock));
 
 	if (rc == NULL)
 		return (SMAP_OK);
@@ -380,7 +400,6 @@ smap_traverse(struct smap *mp, void (*routine)(struct smap *, uint64_t, void *),
 				}
 			}
 		}
-		
 		unlock(&(seg->seg_lock));
 	}
 }
@@ -407,14 +426,14 @@ main(void)
 		printf("error map NULL \n");
 
 	for (i = 0; i < 10260; i++) {
-		rc = smap_insert(map, i, "haha");
+		rc = smap_insert(map, i, "haha", 1);
 		if (rc < 0){
 			printf("i: %d, error: %d\n", i, rc);
 			break;
 		}
 	}
 	for (i = 0; i < 10; i++) {
-		rc = smap_insert(map, i, NULL);
+		rc = smap_insert(map, i, NULL, 1);
 		if (rc < 0){
 			printf("i: %d, error: %d\n", i, rc);
 			break;

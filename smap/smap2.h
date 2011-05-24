@@ -11,7 +11,7 @@ struct smap {
 };
 
 struct smap *smap_init(int, int, int, int);
-int smap_insert(struct smap *, uint64_t, void *);
+int smap_insert(struct smap *, uint64_t, void *, int);
 int smap_delete(struct smap *, uint64_t, int);
 void *smap_get(struct smap *, uint64_t);
 int smap_update(struct smap *, uint64_t, void *);
