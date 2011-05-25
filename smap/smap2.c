@@ -513,7 +513,7 @@ test1(struct smap *mp, uint64_t key, void *value)
 	SMAP_OK;
 }
 
-
+/*
 int
 main(void)
 {
@@ -547,3 +547,4 @@ main(void)
 	smap_traverse(map, test, 0);
 	return (0);
 }
+*/
