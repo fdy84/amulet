@@ -218,13 +218,14 @@ smap_clear(struct smap *mp, int start)
 			new_bp[j].counter = 0;
 			RB_INIT(&(new_bp[j].root));
 		}
-		
+
+		/* alloc a new bucket array and delete the old one. */
 		wrlock(&(sp->seg_lock));
 		old_bp = sp->bp;
 		sp->bp = new_bp;
 		unlock(&(sp->seg_lock));
 		for (j = 0; j < sp->bucket_num; j++) {
-			bp = &(sp->bp[j]);
+			bp = &(old_bp[j]);
 			for (np = RB_MIN(SMAP_TREE, &(bp->root));
 				np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp->root), np), 1);
 				np = tnp) {
@@ -238,6 +239,9 @@ smap_clear(struct smap *mp, int start)
 			}
 		}
 		wrlock(&(sp->seg_lock));
+		free(old_bp);
+		
+		/* Process the mpool. */
 		if (sp->pool_size >= pool_size) {
 			unlock(&(sp->seg_lock));
 			SLIST_FOREACH_SAFE(np, mpool, mem_ent, tnp) {
