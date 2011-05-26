@@ -4,7 +4,7 @@
 import datetime
 import sys, os
 
-extensions = []
+extensions = ['wikibuilder']
 
 templates_path = ['_templates']
 
