@@ -1,0 +1,17 @@
+REGEDIT4
+
+;允许在安装了HTML帮助补丁的计算机上查看共享位置(本地局域网)上的HTML帮助(CHM)文件
+;详细信息参阅下面微软知识库:
+;----------------------
+;Microsoft 安全公告 MS06-046 HTML 帮助中的漏洞可能允许远程执行代码 (922616)
+;http://www.microsoft.com/china/technet/Security/bulletin/ms06-046.mspx
+;无法在安装安全更新 896358、安全更新 840315 或 Windows Server 2003 Service Pack 1 后使用 InfoTech 协议打开远程内容
+;http://support.microsoft.com/kb/896054/zh-cn
+;----------------------
+;手工开启方法,直接运行下面命令(无注释分号):
+;reg add HKLM\SOFTWARE\Microsoft\HTMLHelp\1.x\ItssRestrictions /v MaxAllowedZone /t REG_DWORD /d 3 /f
+;手工关闭方法(恢复默认),直接运行下面命令(无注释分号):
+;reg delete HKLM\SOFTWARE\Microsoft\HTMLHelp\1.x\ItssRestrictions /f
+;----------------------
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\HTMLHelp\1.x\ItssRestrictions]
+"MaxAllowedZone"=dword:00000003
