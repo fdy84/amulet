@@ -13,7 +13,7 @@ from wikir import WikiWriter
 class WikiBuilder(Builder):
     name = 'wiki'
     format = 'wiki'
-    out_suffix = '.txt'
+    out_suffix = '.wiki'
 
     def init(self):
         pass
