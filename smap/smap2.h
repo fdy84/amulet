@@ -1,5 +1,7 @@
 #ifndef	_SMAP_H_
 #define	_SMAP_H_
+#include <stdint.h>
+
 
 struct smap {
 	uint32_t	bucket_num;

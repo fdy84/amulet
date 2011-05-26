@@ -1,7 +1,7 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <pthread.h>
-#include "smap2.c"
-
+#include "smap2.h"
 
 #define F_CONNECTING       1      /* connect() in progress */
 #define F_READING          2      /* connect() complete; now reading */
@@ -41,8 +41,8 @@ int main()
 	int i, rc, ret;
 	pthread_t ntid;
 	struct thread_args *thr_arg;
-	map = smap_init(1024, 10, 0, 0);
-	for (i = 0; i < 10240000; i++) {
+	map = smap_init(1024000, 32, 0, 0);
+	for (i = 0; i < 1024000; i++) {
 		rc = smap_insert(map, i, "haha", 1);
 		if (rc < 0) {
 			printf("i: %d, error: %d\n", i, rc);
@@ -118,7 +118,7 @@ void *getmap(void *argv)
 	void *ret;
 	free(argv);
 	for (j = 0 ; j < 10; j++) {
-	for (i = 0; i < 10240000; i++) {
+	for (i = 0; i < 1024000; i++) {
 		ret = smap_get(map, i);
 		if (ret == NULL) {
 			printf("i: %d, error!\n", i);

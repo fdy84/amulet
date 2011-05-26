@@ -11,7 +11,7 @@
 struct SMAP_ENT{
 	SLIST_ENTRY(SMAP_ENT) mem_ent;
 	RB_ENTRY(SMAP_ENT)    val_ent;
-	uint64_t		key;
+	uint64_t	key;
 	void *data;
 };
 
@@ -171,7 +171,7 @@ smap_init(int capacity , int level, int pool_size, int hash_type)
 		bp = (struct BUCKET *)malloc(sizeof(struct BUCKET) * cap);
 		if (bp == NULL)
 		        return (NULL);
-		
+
 		for (j = 0; j < cap; j++) {
 			bp[j].counter = 0;
 			RB_INIT(&(bp[j].root));
@@ -188,9 +188,8 @@ smap_init(int capacity , int level, int pool_size, int hash_type)
 		}
 		mp->seg[i].pool_size = pool_size;
 	}
-	return mp;
+	return (mp);
 }
-
 
 /*
  * clear a map, it would not always lock, just realloc the bucket and mpool.
