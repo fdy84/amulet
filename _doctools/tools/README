@@ -12,4 +12,10 @@ html help workshop
         
         http://msdn.microsoft.com/en-us/library/ms669979(v=VS.85).aspx
     
+
+wikibuilder
+---------------------------
+
+    a builder for sphinx extension to make the rst file to google wiki file.
+    it depends on wikir.
     

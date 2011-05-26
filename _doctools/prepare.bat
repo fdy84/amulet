@@ -29,6 +29,12 @@ if "%PREPARED" == /b 1 (
     %EASYINSTALL% -U Sphinx
 )
 
+%EASYINSTALL% -U Wikir
+
+cd tools\wikibuilder
+%PYTHON% setup.py install
+cd ..\..
+
 goto :EOF
 
 :IF_EXIST
