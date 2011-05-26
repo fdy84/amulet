@@ -120,6 +120,13 @@ results in _build/doctest/output.txt.
 	goto end
 )
 
+if "%1" == "wiki" (
+	%SPHINXBUILD% -b wiki %ALLSPHINXOPTS% _build/wiki
+	echo.
+	echo.Build finished; now you can process the WIKI files.
+	goto end
+)
+
 goto :EOF
 
 :IF_EXIST

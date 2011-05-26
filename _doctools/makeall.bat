@@ -21,6 +21,7 @@ set PRJNAME=""
 @for /f %%i in ('%PYTHON% getconfvar.py project') do @set PRJNAME=%%i
 CALL make.bat html
 CALL make.bat htmlhelp
+CALL make.bat wiki
 cd ..
 
 %PYTHON% makezip.py publish/%PRJNAME%-html%VER%.zip build/_build/html
