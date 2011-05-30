@@ -23,14 +23,14 @@ struct PAIR {
 	void *data;
 };
 
+typedef int (smap_callback)(struct smap *, struct PAIR *);
+
 struct smap *smap_init(int, int, int, int);
 int smap_insert(struct smap *, struct PAIR *, int);
-int smap_delete(struct smap *, uint64_t, int);
-void *smap_get(struct smap *, uint64_t);
-int smap_update(struct smap *, uint64_t, void *);
-int smap_traverse(struct smap *, int (*routine)(struct smap *, struct PAIR *),uint32_t);
-void smap_key_lock(struct smap *, uint64_t);
-int smap_key_unlock(struct smap *, uint64_t);
+int smap_delete(struct smap *, struct PAIR *, int);
+void *smap_get(struct smap *, struct PAIR *);
+void *smap_update(struct smap *, struct PAIR *);
+int smap_traverse(struct smap *, smap_callback *, uint32_t);
 uint64_t smap_get_elm_num(struct smap *);
 
 #define HASHTYPE_NUM 0

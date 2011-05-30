@@ -37,7 +37,7 @@ struct SEGMENT {
 #define MAX_SEGMENTS (1 << 16) 
 
 static inline int
-hash(int h) 
+nhash(int h) 
 {
 	// Spread bits to regularize both segment and index locations,
 	// using variant of single-word Wang/Jenkins hash.
@@ -50,14 +50,18 @@ hash(int h)
 }
 
 static inline int
-shash(char *str)
+shash(char *str, int len)
 {
 	unsigned int seed = 131; // 31 131 1313 13131 131313 etc..
 	unsigned int hash = 0;
+	int i = 0;
  
 	while (*str)
 	{
 		hash = hash * seed + (*str++);
+		i++;
+		if (i = len)
+			break;
 	}
  
 	return (hash & 0x7FFFFFFF);
@@ -260,6 +264,8 @@ smap_clear(struct smap *mp, int start)
 				np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp->root), np), 1);
 				np = tnp) {
 				RB_REMOVE(SMAP_TREE, &(bp->root), np);
+				if(np->pair.type == HASHTYPE_STR)
+					free(np->pair.skey);
 				SLIST_INSERT_HEAD(mpool, np, mem_ent);
 				
 				if (pool_size < sp->bucket_num)
@@ -321,13 +327,13 @@ smap_insert(struct smap *mp, struct PAIR *pair, int lock)
 	int h;
 	struct SEGMENT *sp;
 
-	if (mp == NULL && pair == NULL)
+	if (mp == NULL || pair == NULL)
 		return (SMAP_GENERAL_ERROR);
 	
 	if (pair->type == HASHTYPE_NUM)
-		h = hash((int)pair->ikey);
+		h = nhash((int)pair->ikey);
 	else if (pair->type == HASHTYPE_STR)
-		h = hash((int)pair->ikey);
+		h = shash((char *)pair->skey, pair->key_len);
 	else
 		return (SMAP_GENERAL_ERROR);
 
@@ -343,9 +349,18 @@ smap_insert(struct smap *mp, struct PAIR *pair, int lock)
 			unlock(&(sp->seg_lock));
 		return (SMAP_OOM);
 	}
-	
-	memcpy(entry, pair, sizeof(struct PAIR));
-	
+
+	if (pair->type == HASHTYPE_NUM) {
+		entry->pair.ikey = pair->ikey;
+		entry->pair.data = pair->data;
+	} else if (pair->type == HASHTYPE_STR) {
+		entry->pair.skey = (char *)malloc(pair->key_len);
+		memcpy(entry->pair.skey, pair->skey, pair->key_len);
+		entry->pair.key_len = pair->key_len;
+	}
+	entry->pair.type = pair->type;
+	entry->pair.data = pair->data;
+
 	sp->counter++;
 	rc = RB_INSERT(SMAP_TREE, &(bp->root), entry);
 	if (lock)
@@ -362,7 +377,7 @@ smap_insert(struct smap *mp, struct PAIR *pair, int lock)
  */
 
 int
-smap_delete(struct smap *mp, uint64_t ikey, int lock)
+smap_delete(struct smap *mp, struct PAIR *pair, int lock)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT entry;
@@ -370,15 +385,20 @@ smap_delete(struct smap *mp, uint64_t ikey, int lock)
 	int h;
 	struct SEGMENT *sp;
 
-	if (mp == NULL)
+	if (pair->type == HASHTYPE_NUM) {
+		h = nhash((int)pair->ikey);
+		entry.pair.ikey = pair->ikey;
+	} else if (pair->type == HASHTYPE_STR) {
+		h = shash((char *)pair->skey, pair->key_len);
+		entry.pair.skey = pair->skey;
+		entry.pair.key_len = pair->key_len;
+	} else {
 		return (SMAP_GENERAL_ERROR);
-
-	h = hash((int)ikey);
+	}
+	entry.pair.type = pair->type;
 
 	sp = get_segment(mp, h);
 	bp = get_bucket(sp, h);
-	
-	entry.pair.ikey = ikey;
 	
 	if (lock)
 		wrlock(&(sp->seg_lock));
@@ -392,7 +412,8 @@ smap_delete(struct smap *mp, uint64_t ikey, int lock)
 	RB_REMOVE(SMAP_TREE, &(bp->root), res);
 
 	bp->counter--;
-
+	
+	free(res->pair.skey);
 	mpool_free(sp, res);
 	if (lock)
 		unlock(&(sp->seg_lock));
@@ -419,7 +440,7 @@ smap_get_elm_num(struct smap *mp)
  */
 
 void *
-smap_get(struct smap *mp, uint64_t ikey)
+smap_get(struct smap *mp, struct PAIR *pair)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT entry;
@@ -428,15 +449,24 @@ smap_get(struct smap *mp, uint64_t ikey)
 	int h;
 	struct SEGMENT *sp;
 
-	if (mp == NULL)
+	if (mp == NULL || pair == NULL)
 		return (NULL);
 
-	h = hash((int)ikey);
-	
+	if (pair->type == HASHTYPE_NUM) {
+		h = nhash((int)pair->ikey);
+		entry.pair.ikey = pair->ikey;
+	} else if (pair->type == HASHTYPE_STR) {
+		h = shash((char *)pair->skey, pair->key_len);
+		entry.pair.skey = pair->skey;
+		entry.pair.key_len = pair->key_len;
+	} else {
+		return (NULL);
+	}
+	entry.pair.type = pair->type;
+
 	sp = get_segment(mp, h);
 	bp = get_bucket(sp, h);
 	
-	entry.pair.ikey = ikey;
 	
 	rdlock(&(sp->seg_lock));
 	rc = RB_FIND(SMAP_TREE, &(bp->root), &entry);
@@ -444,6 +474,7 @@ smap_get(struct smap *mp, uint64_t ikey)
 	if (rc == NULL) {
 		return (NULL);
 	} else {
+		pair->data = rc->pair.data;
 		return (rc->pair.data);
 	}
 }
@@ -452,23 +483,33 @@ smap_get(struct smap *mp, uint64_t ikey)
  * it won't free the value, do it yourself.
  */
 
-int
-smap_update(struct smap *mp, uint64_t ikey, void *data)
+void *
+smap_update(struct smap *mp, struct PAIR *pair)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT entry;
 	struct SMAP_ENT *rc;
 	int h;
+	void *old_data;
 	struct SEGMENT *sp;
 
 	if (mp == NULL)
-		return (SMAP_GENERAL_ERROR);
+		return (NULL);
 
-	h = hash((int)ikey) % (mp->bucket_num);
+	if (pair->type == HASHTYPE_NUM) {
+		h = nhash((int)pair->ikey);
+		entry.pair.ikey = pair->ikey;
+	} else if (pair->type == HASHTYPE_STR) {
+		h = shash((char *)pair->skey, pair->key_len);
+		entry.pair.skey = pair->skey;
+		entry.pair.key_len = pair->key_len;
+	} else {
+		return (NULL);
+	}
+	entry.pair.type = pair->type;
+
 	sp = get_segment(mp, h);
 	bp = get_bucket(sp, h);
-	
-	entry.pair.ikey = ikey;
 	
 	rdlock(&(sp->seg_lock));
 	rc = RB_FIND(SMAP_TREE, &(bp->root), &entry);
@@ -476,20 +517,20 @@ smap_update(struct smap *mp, uint64_t ikey, void *data)
 	/* if no entry */
 	if (rc == NULL) {
 		unlock(&(sp->seg_lock));
-		return (SMAP_NONEXISTENT_KEY);
+		return (NULL);
 	} else {
-		rc->pair.data = data;
+		old_data = rc->pair.data;
+		rc->pair.data = pair->data;
 		unlock(&(sp->seg_lock));
-		return (SMAP_OK);
+		return (old_data);
 	}
-	
 }
 
 /*
  * it won't free the value, do it yourself.
  */
 int
-smap_traverse(struct smap *mp, int (*routine)(struct smap *, struct PAIR *),uint32_t start)
+smap_traverse(struct smap *mp, smap_callback *routine, uint32_t start)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT *np;
@@ -513,7 +554,7 @@ smap_traverse(struct smap *mp, int (*routine)(struct smap *, struct PAIR *),uint
 			for (np = RB_MIN(SMAP_TREE, &(bp->root));
 				np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp->root), np), 1);
 				np = tnp) {
-				rc = routine(mp, &np->pair);
+				rc = routine(mp, &(np->pair));
 				if (rc == SMAP_BREAK) {
 					unlock(&(sp->seg_lock));
 					goto out;
@@ -524,26 +565,6 @@ smap_traverse(struct smap *mp, int (*routine)(struct smap *, struct PAIR *),uint
 	}
 	out:
 	return 0;
-}
-
-int
-test(struct smap *mp, uint64_t ikey, void *value)
-{
-	printf("ikey = %ld, value = %s\n", ikey, (char *)value);
-
-	SMAP_OK;
-}
-
-int
-test1(struct smap *mp, uint64_t ikey, void *value)
-{
-	if (SMAP_OK == smap_delete(mp, ikey, 0)) {
-		printf("ikey = %ld, value = %s\n", ikey, (char *)value);
-	} else {
-		/* unreachable because travser won't reached */
-		printf("no ikey!\n");
-	}
-	SMAP_OK;
 }
 
 /*
@@ -585,6 +606,6 @@ main(void)
 int
 main(void)
 {
-	printf("%d, %d\n", sizeof(struct PAIR), sizeof(struct SMAP_ENT));
+	printf("%lu, %lu\n", sizeof(struct PAIR), sizeof(struct SMAP_ENT));
 	return 0;
 }
