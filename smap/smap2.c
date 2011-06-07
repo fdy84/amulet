@@ -22,18 +22,18 @@ struct BUCKET {
         uint64_t counter;
         struct SMAP_TREE root;
 };
-SLIST_HEAD(MPOOL_HEAD, SMAP_ENT);
+SLIST_HEAD(ENTRY_POOL_HEAD, SMAP_ENT);
 
 struct SEGMENT {
-		struct MPOOL_HEAD	*mpool;
+		struct ENTRY_POOL_HEAD	*entry_pool;
 		uint64_t	counter;
 		int	bucket_num;
 		struct BUCKET *bp;
-		int pool_size;
+		int entry_pool_size;
         pthread_rwlock_t seg_lock;
 };
 
-#define MAXIMUM_CAPACITY (1 << 30)
+#define MAX_CAPACITY (1 << 30)
 #define MAX_SEGMENTS (1 << 16) 
 
 static inline int
@@ -67,38 +67,50 @@ shash(char *str, int len)
 	return (hash & 0x7FFFFFFF);
 }
 
+static inline int
+ncmp(struct SMAP_ENT *a, struct SMAP_ENT *b)
+{
+	int64_t diff = a->pair.ikey - b->pair.ikey;
+
+	if (diff == 0)
+		return (0);
+	else if (diff < 0)
+		return (-1);
+	else
+		return (1);
+}
+
+static inline int
+scmp(struct SMAP_ENT *a, struct SMAP_ENT *b)
+{
+	int c = a->pair.key_len - b->pair.key_len;
+	if (c == 0) {
+		if (a->pair.key_len >= sizeof(char *))
+			c = strncmp(a->pair.skey, b->pair.skey, a->pair.key_len);
+		else
+			c = strncmp((char*)(&a->pair.skey), (char*)(&b->pair.skey), a->pair.key_len);
+		return (c ? (c < 0 ? -1 : 1) : 0);
+	} else 
+		return (c < 0 ? -1 : 1);
+}
+
 /* It support both number and string */
 static inline int
-cmp1(struct SMAP_ENT *a, struct SMAP_ENT *b)
+smap_cmp(struct SMAP_ENT *a, struct SMAP_ENT *b)
 {
 	if (a->pair.type == b->pair.type) {
 		if (a->pair.type == HASHTYPE_NUM) {
-			int64_t diff = a->pair.ikey - b->pair.ikey;
-
-			if (diff == 0)
-				return (0);
-			else if (diff < 0)
-				return (-1);
-			else
-				return (1);
+			return ncmp(a, b);
 		} else {
-			int c = a->pair.key_len - b->pair.key_len;
-			if (c == 0) {
-				c = strncmp(a->pair.skey, b->pair.skey, a->pair.key_len);
-				return (c ? (c < 0 ? -1 : 1) : 0);
-			} else 
-				return (c < 0 ? -1 : 1);
-
+			return scmp(a, b);
 		}
 	} else {
 		return (a->pair.type - b->pair.type);
 	}
 }
 
-
-RB_PROTOTYPE_STATIC(SMAP_TREE, SMAP_ENT, val_ent, cmp1);
-RB_GENERATE_STATIC(SMAP_TREE, SMAP_ENT, val_ent, cmp1);
-
+RB_PROTOTYPE_STATIC(SMAP_TREE, SMAP_ENT, val_ent, smap_cmp);
+RB_GENERATE_STATIC(SMAP_TREE, SMAP_ENT, val_ent, smap_cmp);
 
 static void
 rdlock(pthread_rwlock_t *lock)
@@ -135,14 +147,22 @@ unlock(pthread_rwlock_t *lock)
 	}
 }
 
+
+/*
+ * This is a simple memory pool, itself is not thread safed,
+ * but each memory pool all with "segment" one-to-one, 
+ * lock segment will lock the thread pool, thus can be safe too.
+ * Memory pool is a simple list structure, 
+ * through the entry of fixed length to achieve rapid memory allocation.
+ */
 static struct SMAP_ENT *
-mpool_alloc(struct SEGMENT *sp)
+entry_alloc(struct smap *mp, struct SEGMENT *sp)
 {
 	struct SMAP_ENT *entry;
-	if (!SLIST_EMPTY(sp->mpool)) {
-		entry = SLIST_FIRST(sp->mpool);
-		SLIST_REMOVE_HEAD(sp->mpool, mem_ent);
-		sp->pool_size--;
+	if (!SLIST_EMPTY(sp->entry_pool) && mp->entry_pool) {
+		entry = SLIST_FIRST(sp->entry_pool);
+		SLIST_REMOVE_HEAD(sp->entry_pool, mem_ent);
+		sp->entry_pool_size--;
 	} else {
 		entry = (struct SMAP_ENT *)malloc(sizeof(struct SMAP_ENT));
 	}
@@ -150,21 +170,22 @@ mpool_alloc(struct SEGMENT *sp)
 }
 
 static void
-mpool_free(struct SEGMENT *sp, struct SMAP_ENT *ptr)
+entry_free(struct smap *mp, struct SEGMENT *sp, struct SMAP_ENT *ptr)
 {
-	if (sp->pool_size < sp->bucket_num ) {
-		SLIST_INSERT_HEAD(sp->mpool, ptr, mem_ent);
-		sp->pool_size++;
+	if (sp->entry_pool_size < (sp->bucket_num*2) && mp->entry_pool) {
+		SLIST_INSERT_HEAD(sp->entry_pool, ptr, mem_ent);
+		sp->entry_pool_size++;
 	} else {
 		free(ptr);
 	}
 }
+
 /*
- * hash_type: number or string
+ *
  * level: The concurrency level
  */
 struct smap *
-smap_init(int capacity , int level, int pool_size, int hash_type)
+smap_init(int capacity , int level, int entry_pool_size)
 {
 	struct BUCKET *bp;
 	struct smap *mp;
@@ -184,10 +205,9 @@ smap_init(int capacity , int level, int pool_size, int hash_type)
 
 	mp->seg_shift = 32 - sshift;
 	mp->seg_mask = ssize - 1;
-	mp->hash_type = hash_type;
 
-	if (capacity > MAXIMUM_CAPACITY)
-		capacity = MAXIMUM_CAPACITY;
+	if (capacity > MAX_CAPACITY)
+		capacity = MAX_CAPACITY;
 	c = capacity / ssize;
 	if (c * ssize < capacity)
 		++c;
@@ -197,6 +217,14 @@ smap_init(int capacity , int level, int pool_size, int hash_type)
 
 	mp->seg = (struct SEGMENT *)malloc(sizeof(struct SEGMENT)*ssize);
 	mp->seg_num = ssize;
+
+	if (entry_pool_size > 0) {
+		mp->entry_pool = 1;
+	} else if (entry_pool_size == 0) {
+		mp->entry_pool = 0;
+	} else if (entry_pool_size != DEFAULT_ENTRY_POOL_SIZE) {
+		return (NULL);
+	}
 
 	for (i = 0; i < ssize; i++) {
 		rc = pthread_rwlockattr_init(&attr);
@@ -213,15 +241,20 @@ smap_init(int capacity , int level, int pool_size, int hash_type)
 		}
 		mp->seg[i].bucket_num = cap;	
 		mp->seg[i].bp = bp;
-		mp->seg[i].mpool = (struct MPOOL_HEAD *)malloc(sizeof(struct MPOOL_HEAD));
-		SLIST_INIT(mp->seg[i].mpool);
-		if (pool_size == 0)
-			pool_size = cap/2;
-		for (j = 0; j < pool_size; j++) {
-			struct SMAP_ENT *new_mem_ent = (struct SMAP_ENT *)malloc(sizeof(struct SMAP_ENT));
-			SLIST_INSERT_HEAD(mp->seg[i].mpool, new_mem_ent, mem_ent);
+
+		/* initialize the memory pool */
+		if (entry_pool_size != 0)
+		{
+			mp->seg[i].entry_pool = (struct ENTRY_POOL_HEAD *)malloc(sizeof(struct ENTRY_POOL_HEAD));
+			SLIST_INIT(mp->seg[i].entry_pool);
+			if (entry_pool_size == DEFAULT_ENTRY_POOL_SIZE)
+				entry_pool_size = cap/2;
+			for (j = 0; j < entry_pool_size; j++) {
+				struct SMAP_ENT *new_mem_ent = (struct SMAP_ENT *)malloc(sizeof(struct SMAP_ENT));
+				SLIST_INSERT_HEAD(mp->seg[i].entry_pool, new_mem_ent, mem_ent);
+			}
+			mp->seg[i].entry_pool_size = entry_pool_size;
 		}
-		mp->seg[i].pool_size = pool_size;
 	}
 	return (mp);
 }
@@ -238,13 +271,13 @@ smap_clear(struct smap *mp, int start)
 	struct BUCKET *new_bp;
 	struct BUCKET *bp;
 	struct SMAP_ENT *np, *tnp;
-	int pool_size = 0;
-	struct MPOOL_HEAD	*mpool, *tmpool;
+	int entry_pool_size = 0;
+	struct ENTRY_POOL_HEAD	*entry_pool, *tentry_pool;
 	
-	mpool = (struct MPOOL_HEAD *)malloc(sizeof(struct MPOOL_HEAD));
+	entry_pool = (struct ENTRY_POOL_HEAD *)malloc(sizeof(struct ENTRY_POOL_HEAD));
 
 	for (i = 0; i < mp->seg_num; i++) {
-		SLIST_INIT(mpool);
+		SLIST_INIT(entry_pool);
 		sp = &(mp->seg[(i + start) % (mp->seg_num)]);
 
 		new_bp = (struct BUCKET *)malloc(sp->bucket_num * sizeof(struct BUCKET));
@@ -264,12 +297,13 @@ smap_clear(struct smap *mp, int start)
 				np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp->root), np), 1);
 				np = tnp) {
 				RB_REMOVE(SMAP_TREE, &(bp->root), np);
-				if(np->pair.type == HASHTYPE_STR)
+				if(np->pair.type == HASHTYPE_STR && 
+					np->pair.key_len >= sizeof(char *))
 					free(np->pair.skey);
-				SLIST_INSERT_HEAD(mpool, np, mem_ent);
+				SLIST_INSERT_HEAD(entry_pool, np, mem_ent);
 				
-				if (pool_size < sp->bucket_num)
-					pool_size++;
+				if (entry_pool_size < sp->bucket_num)
+					entry_pool_size++;
 				else
 					free(np);
 			}
@@ -277,29 +311,29 @@ smap_clear(struct smap *mp, int start)
 		wrlock(&(sp->seg_lock));
 		free(old_bp);
 		
-		/* Process the mpool. */
-		if (sp->pool_size >= pool_size) {
+		/* Process the entry_pool. */
+		if (sp->entry_pool_size >= entry_pool_size) {
 			unlock(&(sp->seg_lock));
-			SLIST_FOREACH_SAFE(np, mpool, mem_ent, tnp) {
+			SLIST_FOREACH_SAFE(np, entry_pool, mem_ent, tnp) {
 				free(np);
 			}
 		} else {
-			tmpool = sp->mpool;
-			sp->mpool = mpool;
-			sp->pool_size = pool_size;
+			tentry_pool = sp->entry_pool;
+			sp->entry_pool = entry_pool;
+			sp->entry_pool_size = entry_pool_size;
 			unlock(&(sp->seg_lock));
-			SLIST_FOREACH_SAFE(np, tmpool, mem_ent, tnp) {
+			SLIST_FOREACH_SAFE(np, tentry_pool, mem_ent, tnp) {
 				free(np);
 			}
-			free(tmpool);
-			mpool = tmpool;
+			free(tentry_pool);
+			entry_pool = tentry_pool;
 		}
-		pool_size = 0;
+		entry_pool_size = 0;
 	}
 }
 
 
-static struct SEGMENT *
+static inline struct SEGMENT *
 get_segment(struct smap *mp, int hash)
 {
 	int seg_hash;
@@ -308,15 +342,16 @@ get_segment(struct smap *mp, int hash)
 	uint64_t shit = hash & 0x7FFFFFFF;
 
 	seg_hash = (shit >> mp->seg_shift) & (mp->seg_shift);
-	return mp->seg + seg_hash;
+	return (mp->seg + seg_hash);
 }
 
-static struct BUCKET *
+static inline struct BUCKET *
 get_bucket(struct SEGMENT *sp, int hash)
 {
 	int index = hash & (sp->bucket_num - 1);
 	return &(sp->bp[index]);
 }
+
 
 int
 smap_insert(struct smap *mp, struct PAIR *pair, int lock)
@@ -330,20 +365,27 @@ smap_insert(struct smap *mp, struct PAIR *pair, int lock)
 	if (mp == NULL || pair == NULL)
 		return (SMAP_GENERAL_ERROR);
 	
-	if (pair->type == HASHTYPE_NUM)
+	if (pair->type == HASHTYPE_NUM) {
 		h = nhash((int)pair->ikey);
-	else if (pair->type == HASHTYPE_STR)
+	} else if (pair->type == HASHTYPE_STR) {
+		if (pair->key_len == 0 || pair->skey == NULL)
+			return (SMAP_GENERAL_ERROR);
 		h = shash((char *)pair->skey, pair->key_len);
-	else
+	} else {
 		return (SMAP_GENERAL_ERROR);
+	}
 
 	sp = get_segment(mp, h);
 	bp = get_bucket(sp, h);
 	
 	if (lock)
 		wrlock(&(sp->seg_lock));
-	
-	entry = mpool_alloc(sp);
+	/*
+	 * Because we have locked the segment,
+	 * so although mpool itself is not thread safe,
+	 * its in the segment, also can assure safety.
+	 */
+	entry = entry_alloc(mp, sp);
 	if (entry == NULL) {
 		if (lock)
 			unlock(&(sp->seg_lock));
@@ -354,10 +396,15 @@ smap_insert(struct smap *mp, struct PAIR *pair, int lock)
 		entry->pair.ikey = pair->ikey;
 		entry->pair.data = pair->data;
 	} else if (pair->type == HASHTYPE_STR) {
-		entry->pair.skey = (char *)malloc(pair->key_len);
-		memcpy(entry->pair.skey, pair->skey, pair->key_len);
+		if (pair->key_len >= sizeof(char *)) {
+			entry->pair.skey = (char *)malloc(pair->key_len + 1);
+			memcpy(entry->pair.skey, pair->skey, pair->key_len);
+		} else {
+			memcpy((char *)(&(entry->pair.skey)), pair->skey, pair->key_len);
+		}
 		entry->pair.key_len = pair->key_len;
 	}
+
 	entry->pair.type = pair->type;
 	entry->pair.data = pair->data;
 
@@ -390,7 +437,11 @@ smap_delete(struct smap *mp, struct PAIR *pair, int lock)
 		entry.pair.ikey = pair->ikey;
 	} else if (pair->type == HASHTYPE_STR) {
 		h = shash((char *)pair->skey, pair->key_len);
-		entry.pair.skey = pair->skey;
+		if (pair->key_len >= sizeof(char *))
+			entry.pair.skey = pair->skey;
+		else
+			memcpy((char *)(&(entry.pair.skey)), pair->skey, pair->key_len);
+
 		entry.pair.key_len = pair->key_len;
 	} else {
 		return (SMAP_GENERAL_ERROR);
@@ -413,8 +464,10 @@ smap_delete(struct smap *mp, struct PAIR *pair, int lock)
 
 	bp->counter--;
 	
-	free(res->pair.skey);
-	mpool_free(sp, res);
+	if (res->pair.key_len >= sizeof(char *))
+		free(res->pair.skey);
+
+	entry_free(mp, sp, res);
 	if (lock)
 		unlock(&(sp->seg_lock));
 	return (SMAP_OK);
@@ -457,7 +510,10 @@ smap_get(struct smap *mp, struct PAIR *pair)
 		entry.pair.ikey = pair->ikey;
 	} else if (pair->type == HASHTYPE_STR) {
 		h = shash((char *)pair->skey, pair->key_len);
-		entry.pair.skey = pair->skey;
+		if (pair->key_len >= sizeof(char*))
+			entry.pair.skey = pair->skey;
+		else
+			memcpy((char *)(&(entry.pair.skey)), pair->skey, pair->key_len);
 		entry.pair.key_len = pair->key_len;
 	} else {
 		return (NULL);
@@ -501,7 +557,11 @@ smap_update(struct smap *mp, struct PAIR *pair)
 		entry.pair.ikey = pair->ikey;
 	} else if (pair->type == HASHTYPE_STR) {
 		h = shash((char *)pair->skey, pair->key_len);
-		entry.pair.skey = pair->skey;
+		if (pair->key_len >= sizeof(char*))
+			entry.pair.skey = pair->skey;
+		else
+			memcpy((char *)(&(entry.pair.skey)), pair->skey, pair->key_len);
+
 		entry.pair.key_len = pair->key_len;
 	} else {
 		return (NULL);
@@ -554,7 +614,7 @@ smap_traverse(struct smap *mp, smap_callback *routine, uint32_t start)
 			for (np = RB_MIN(SMAP_TREE, &(bp->root));
 				np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp->root), np), 1);
 				np = tnp) {
-				rc = routine(mp, &(np->pair));
+				rc = routine(mp, (struct PAIR *)(&(np->pair)));
 				if (rc == SMAP_BREAK) {
 					unlock(&(sp->seg_lock));
 					goto out;
