@@ -185,7 +185,7 @@ entry_free(struct smap *mp, struct SEGMENT *sp, struct SMAP_ENT *ptr)
  * level: The concurrency level
  */
 struct smap *
-smap_init(int capacity , int level, int entry_pool_size)
+smap_init(int capacity , float load_factor, int level, int entry_pool_size)
 {
 	struct BUCKET *bp;
 	struct smap *mp;
@@ -194,9 +194,15 @@ smap_init(int capacity , int level, int entry_pool_size)
 	int sshift = 0;
 	int ssize = 1;
 	int cap, c;
-	pthread_rwlockattr_t attr;
+//	pthread_rwlockattr_t attr;
+
+	if (!(load_factor > 0) || capacity < 0 || level <= 0)
+		return (NULL);
 
 	mp = (struct smap *)malloc(sizeof(struct smap));
+
+	if (level > MAX_SEGMENTS)
+		level = MAX_SEGMENTS;
 
 	while ( ssize < level ) {
 		++sshift;
@@ -227,8 +233,7 @@ smap_init(int capacity , int level, int entry_pool_size)
 	}
 
 	for (i = 0; i < ssize; i++) {
-		rc = pthread_rwlockattr_init(&attr);
-		rc = pthread_rwlock_init(&(mp->seg[i].seg_lock), &attr);
+		rc = pthread_rwlock_init(&(mp->seg[i].seg_lock), NULL);
 		if (rc != 0)
 			return (NULL);
 		bp = (struct BUCKET *)malloc(sizeof(struct BUCKET) * cap);
@@ -627,45 +632,40 @@ smap_traverse(struct smap *mp, smap_callback *routine, uint32_t start)
 	return 0;
 }
 
-/*
+#include <sys/time.h>
+struct timeval tvafter,tvpre;
+struct timezone tz;
+
 int
 main(void)
 {
 	struct smap* map;
+	struct PAIR pair;
 	int i;
 	int rc;
 
-	map = smap_init(1024, 10, 0, 0);
+	printf("%lu, %lu\n", sizeof(struct PAIR), sizeof(struct SMAP_ENT));
+
+	map = smap_init(DEFAULT_INITIAL_CAPACITY,
+		DEFAULT_LOAD_FACTOR, DEFAULT_CONCURRENCY_LEVEL, DEFAULT_INITIAL_CAPACITY);
 
 	if (map == NULL)
 		printf("error map NULL \n");
+	
+	gettimeofday (&tvpre , &tz);
+	#define LOOP_TIMES 1000000
+	for (i = 0; i < LOOP_TIMES; i++) {
+		SMAP_SET_NUM_PAIR(&pair, i, "haha");
+		rc = smap_insert(map, &pair, 1);
+		if (rc < 0){
+			printf("i: %d, error: %d\n", i, rc);
+			break;
+		}
+	}
+	gettimeofday (&tvafter , &tz);
+printf("%d times: %dms\n", LOOP_TIMES, (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000);
+	
 
-	for (i = 0; i < 10240; i++) {
-		rc = smap_insert(map, i, "haha", 1);
-		if (rc < 0){
-			printf("i: %d, error: %d\n", i, rc);
-			break;
-		}
-	}
-	
-	smap_clear(map, 0);
-	
-	for (i = 0; i < 10240; i++) {
-		rc = smap_insert(map, i, "hoho", 1);
-		if (rc < 0){
-			printf("i: %d, error: %d\n", i, rc);
-			break;
-		}
-	}
-	smap_traverse(map, test1, 0);
-	smap_traverse(map, test, 0);
 	return (0);
 }
-*/
 
-int
-main(void)
-{
-	printf("%lu, %lu\n", sizeof(struct PAIR), sizeof(struct SMAP_ENT));
-	return 0;
-}
