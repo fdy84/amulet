@@ -212,7 +212,7 @@ static struct SMAP_ENT *
 entry_alloc(struct SMAP *mp, struct SEGMENT *sp)
 {
 	struct SMAP_ENT *ep;
-	if (!SLIST_EMPTY(sp->entry_pool) && mp->mpool_enabled) {
+	if (mp->mpool_enabled && !SLIST_EMPTY(sp->entry_pool)) {
 		ep = SLIST_FIRST(sp->entry_pool);
 		SLIST_REMOVE_HEAD(sp->entry_pool, mem_ent);
 		sp->entry_pool_size--;
@@ -225,7 +225,7 @@ entry_alloc(struct SMAP *mp, struct SEGMENT *sp)
 static void
 entry_free(struct SMAP *mp, struct SEGMENT *sp, struct SMAP_ENT *ptr)
 {
-	if (sp->entry_pool_size < (sp->bucket_num*2) && mp->mpool_enabled) {
+	if (mp->mpool_enabled && sp->entry_pool_size < (sp->bucket_num*2)) {
 		SLIST_INSERT_HEAD(sp->entry_pool, ptr, mem_ent);
 		sp->entry_pool_size++;
 	} else {
@@ -749,45 +749,6 @@ smap_update(struct SMAP *mp, struct PAIR *pair)
 	}
 }
 
-/*
- * it won't free the value, do it yourself.
- */
-int
-smap_traverse(struct SMAP *mp, smap_callback *routine, uint32_t start)
-{
-	struct BUCKET *bp;
-	struct SMAP_ENT *np;
-	struct SMAP_ENT *tnp;
-	int i, j;
-	int rc;
-	struct SEGMENT *sp;
-	
-	if (mp == NULL || routine == NULL)
-		return (SMAP_GENERAL_ERROR);
-	if (start >= mp->seg_num)
-		return (SMAP_GENERAL_ERROR);
-		
-	for (i = 0; i < mp->seg_num; i++) {
-		sp = &(mp->seg[(i + start) & mp->seg_shift]);
-		SMAP_WRLOCK(&(sp->seg_lock));
-		for (j = 0; j < sp->bucket_num; j++) {
-			bp = &(sp->bp[j]);
-
-			for (np = RB_MIN(SMAP_TREE, &(bp->root));
-				np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp->root), np), 1);
-				np = tnp) {
-				rc = routine(mp, (struct PAIR *)(&(np->pair)));
-				if (rc == SMAP_BREAK) {
-					SMAP_UNLOCK(&(sp->seg_lock));
-					goto out;
-				}
-			}
-		}
-		SMAP_UNLOCK(&(sp->seg_lock));
-	}
-	out:
-	return 0;
-}
 
 static void
 smap_pair_copyout(char *dstkeybuf, struct PAIR *dst, struct PAIR *src)
@@ -812,6 +773,50 @@ smap_pair_copyout(char *dstkeybuf, struct PAIR *dst, struct PAIR *src)
 	}
 }
 
+/*
+ * it won't free the value, do it yourself.
+ */
+int
+smap_traverse(struct SMAP *mp, smap_callback *routine, uint32_t start)
+{
+	struct BUCKET *bp;
+	struct SMAP_ENT *np;
+	struct SMAP_ENT *tnp;
+	int i, j;
+	int rc;
+	struct SEGMENT *sp;
+	struct PAIR pair;
+	char keybuf[SMAP_MAX_KEY_LEN+1];
+	
+	if (mp == NULL || routine == NULL)
+		return (SMAP_GENERAL_ERROR);
+	if (start >= mp->seg_num)
+		return (SMAP_GENERAL_ERROR);
+		
+	for (i = 0; i < mp->seg_num; i++) {
+		sp = &(mp->seg[(i + start) % mp->seg_num]);
+		SMAP_WRLOCK(&(sp->seg_lock));
+		for (j = 0; j < sp->bucket_num; j++) {
+			bp = &(sp->bp[j]);
+
+			for (np = RB_MIN(SMAP_TREE, &(bp->root));
+				np && ((tnp) = RB_NEXT(SMAP_TREE, &(bp->root), np), 1);
+				np = tnp) {
+				smap_pair_copyout(keybuf, &pair, &(np->pair));
+				rc = routine(mp, &pair);
+				if (rc == SMAP_BREAK) {
+					SMAP_UNLOCK(&(sp->seg_lock));
+					goto out;
+				}
+			}
+		}
+		SMAP_UNLOCK(&(sp->seg_lock));
+	}
+	out:
+	return 0;
+}
+
+
 struct PAIR *
 smap_get_first(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 {
@@ -824,7 +829,7 @@ smap_get_first(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 		return (NULL);
 
 	for (i = 0; i < mp->seg_num; i++) {
-		sp = &(mp->seg[(i + start) & mp->seg_shift]);
+		sp = &(mp->seg[(i + start) % mp->seg_num]);
 
 		SMAP_RDLOCK(&(sp->seg_lock));
 		for (j = 0; j < sp->bucket_num; j++) {
@@ -948,8 +953,16 @@ got_pair:
 	return (pair);
 }
 
+int sh = 0;
 int shit(struct SMAP * mp, struct PAIR *p)
 {
+	sh++;
+	/*
+	if (SMAP_IS_NUM(p))
+		printf("no: %08d, key: %014d, value: %s\n", sh, p->ikey, p->data);
+	else
+		printf("no: %08d, key: \"%s\", value: %s\n", sh, &p->skey, p->data);
+*/
 	return 0;
 }
 #ifdef __SMAP_MAIN__
@@ -1029,11 +1042,28 @@ printf("insert int&str: %d times: %dms\n", LOOP_TIMES, (tvafter.tv_sec-tvpre.tv_
 printf("get: %d times: %dms\n", LOOP_TIMES, (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000);
 
 
+	gettimeofday (&tvpre , &tz);
+
+	for (i = 0; i < LOOP_TIMES; i++) {
+		SMAP_SET_NUM_KEY(&pair, 1);
+		val = smap_get(map, &pair);
+		if (val == NULL){
+			printf("i: %d, get error\n", i);
+		} else {
+//			printf("%s\n", (char *)val);
+		}
+	}
+	gettimeofday (&tvafter , &tz);
+
+printf("get one: %d times: %dms\n", LOOP_TIMES, (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000);
+
+
+
 	i = 0;
 	memset(&pair, 0, sizeof(pair));
 	gettimeofday (&tvpre , &tz);
-	for (p = smap_get_first(map, &pair, keybuf, -1);
-		p != NULL; p = smap_get_next(map, p, keybuf, -1)) {
+	for (p = smap_get_first(map, &pair, keybuf, 0);
+		p != NULL; p = smap_get_next(map, p, keybuf, 0)) {
 		i++;
 		/*
 		int c = SMAP_IS_NUM(&pair);
@@ -1044,14 +1074,14 @@ printf("get: %d times: %dms\n", LOOP_TIMES, (tvafter.tv_sec-tvpre.tv_sec)*1000+(
 		*/
 	}
 	gettimeofday (&tvafter , &tz);
-printf("traverse 1 time: %dms\n", (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000);
+printf("traverse 1 time: %dms %d\n", (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000, i);
 	
 	i = 0;
 	memset(&pair, 0, sizeof(pair));
 	gettimeofday (&tvpre , &tz);
 smap_traverse(map, shit, 0);
 	gettimeofday (&tvafter , &tz);
-printf("traverse 2 time: %dms\n", (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000);
+printf("traverse 2 time: %dms %d\n", (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000, sh);
 //#endif
 //smap_get_bucket_counter(map);
 //smap_get_segment_counter(map);

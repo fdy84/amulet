@@ -4,11 +4,9 @@
 
 
 struct SMAP {
-	int	bucket_num;
 	int	seg_num;
 	int seg_shift;
 	int seg_mask;
-	int cap;
 	int load_factor;
 	int mpool_enabled;	/* mempool switch */
 	int mt;			/* Multi-thread lock protected */
