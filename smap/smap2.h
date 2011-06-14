@@ -3,14 +3,14 @@
 #include <stdint.h>
 
 
-struct smap {
+struct SMAP {
 	int	bucket_num;
 	int	seg_num;
 	int seg_shift;
 	int seg_mask;
 	int cap;
 	int load_factor;
-	int entry_pool;	/**/
+	int mpool_enabled;	/* mempool switch */
 	int mt;			/* Multi-thread lock protected */
 	struct SEGMENT *seg;	
 };
@@ -18,6 +18,7 @@ struct smap {
 struct PAIR {
 	int type; /* number or string */
 	int key_len;
+//	int data_len;
 	union {
 		uint64_t	ikey;
 		char	*skey;
@@ -25,17 +26,17 @@ struct PAIR {
 	void *data;
 };
 
-typedef int (smap_callback)(struct smap *, struct PAIR *);
+typedef int (smap_callback)(struct SMAP *, struct PAIR *);
 
-struct smap *smap_init(int, float, int, int, int);
-int smap_insert(struct smap *, struct PAIR *, int);
-int smap_delete(struct smap *, struct PAIR *, int);
-void *smap_get(struct smap *, struct PAIR *);
-void *smap_update(struct smap *, struct PAIR *);
-int smap_traverse(struct smap *, smap_callback *, uint32_t);
-uint64_t smap_get_elm_num(struct smap *);
-struct PAIR *smap_get_first(struct smap *, struct PAIR *, char *, uint32_t);
-struct PAIR *smap_get_next(struct smap *, struct PAIR *, char *, uint32_t);
+struct SMAP *smap_init(int, float, int, int, int);
+int smap_insert(struct SMAP *, struct PAIR *, int);
+int smap_delete(struct SMAP *, struct PAIR *, int);
+void *smap_get(struct SMAP *, struct PAIR *);
+void *smap_update(struct SMAP *, struct PAIR *);
+int smap_traverse(struct SMAP *, smap_callback *, uint32_t);
+uint64_t smap_get_elm_num(struct SMAP *);
+struct PAIR *smap_get_first(struct SMAP *, struct PAIR *, char *, int);
+struct PAIR *smap_get_next(struct SMAP *, struct PAIR *, char *, int);
 
 #define HASHTYPE_NUM 0
 #define HASHTYPE_STR 1
@@ -72,6 +73,16 @@ struct PAIR *smap_get_next(struct smap *, struct PAIR *, char *, uint32_t);
 	(pair)->data = value;	\
 } while (/*CONSTCOND*/ 0)
 
+#define SMAP_SET_STR_KEY(pair, key, klen) do {	\
+	(pair)->type = HASHTYPE_STR;	\
+	(pair)->skey = key;	\
+	(pair)->key_len = klen;	\
+} while (/*CONSTCOND*/ 0)
+
+#define SMAP_SET_NUM_KEY(pair, key) do {	\
+	(pair)->type = HASHTYPE_NUM;	\
+	(pair)->ikey = key;	\
+} while (/*CONSTCOND*/ 0)
 #define SMAP_GET_NUM_KEY(pair) ((pair)->ikey)
 
 #define SMAP_GET_KEY_LEN(pair) ((pair)->key_len)
