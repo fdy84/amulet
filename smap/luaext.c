@@ -28,11 +28,11 @@ static struct SMAP *tabletosmap(lua_State *lua, int index){
       ksiz = sprintf(knbuf, "%lld", (long long)lua_tonumber(lua, -2));
       nkey = lua_tonumber(lua, -2);
       kbuf = knbuf;
-	  SMAP_SET_NUM_PAIR(&pair, nkey, 0);
+	  SMAP_SET_NUM_KEY(&pair, nkey);
       break;
     case LUA_TSTRING:
       kbuf = lua_tolstring(lua, -2, &ksiz);
-      SMAP_SET_STR_PAIR(&pair, kbuf, ksiz, NULL);
+      SMAP_SET_STR_KEY(&pair, kbuf, ksiz);
       break;
     }
 	
@@ -55,7 +55,7 @@ static struct SMAP *tabletosmap(lua_State *lua, int index){
         break;
       }
       
-      pair.data = v;
+      SMAP_SET_VALUE(&pair, v);
       
       smap_insert(map, &pair, 0);
     }
@@ -86,6 +86,38 @@ static void smaptotable(lua_State *lua, struct SMAP *map){
     lua_setfield(lua, -2, SMAP_GET_STR_KEY(p));
   }
 }
+#define TDBDATAVAR      "_tdbdata_"
+static int print_table(lua_State *lua){
+  int argc = lua_gettop(lua);
+  struct PAIR *p;
+  struct PAIR pair;
+  char keybuf[SMAP_MAX_KEY_LEN + 1];
+
+  printf("argc: %d\n", argc);
+  lua_getfield(lua, 1, TDBDATAVAR);
+  size_t pksiz;
+
+  if(!lua_istable(lua, 1)){
+    lua_pushstring(lua, "invalid arguments");
+    lua_error(lua);
+  }
+  struct SMAP *map = tabletosmap(lua, 1);
+  
+	for (p = smap_get_first(map, &pair, keybuf, 0);
+		p != NULL; p = smap_get_next(map, p, keybuf, 0)) {
+					
+		int c = SMAP_IS_NUM(&pair);
+		if (c)
+			printf("key: %014d, value: %s\n", p->ikey, p->data);
+		else
+			printf("key: \"%s\", value: %s\n", p->skey, p->data);
+		
+	}
+  
+  lua_pushboolean(lua, 1);
+  return 1;
+}
+
 
 int
 main(void)
@@ -107,6 +139,9 @@ main(void)
 	luaopen_base(L);
 	luaopen_table(L);
 	luaopen_string(L);
+	  lua_pushcfunction(L, print_table);
+//  lua_setfield(L, -2, "ptable");
+  lua_setglobal(L, "ptable");
 	if(luaL_loadfile(L, "./test.lua") || lua_pcall(L, 0, 0, 0)) {
 		printf((lua_tostring(L, -1)));
 	}
