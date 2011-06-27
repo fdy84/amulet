@@ -7,7 +7,7 @@ int main()
 	struct smap* map;
 	int i, rc;
 
-	map = smap_init(102400, 10, 4, 0);
+	map = smap_init(102400, 10, 0, 0);
 	printf("start\n");
 	for (i = 0; i < 1024000; i++) {
 		rc = smap_insert(map, i, "haha", 1);

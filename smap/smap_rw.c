@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <pthread.h>
+#include <inttypes.h>
 
 #include "smap2.h"
 #include "tree.h"
@@ -30,13 +31,24 @@ struct BUCKET {
 };
 SLIST_HEAD(ENTRY_POOL_HEAD, SMAP_ENT);
 
+typedef intptr_t state_t;
+//typedef pthread_rwlock_t rwlock_t;
+typedef struct spin_rw_mutex {
+    //! State of lock
+    /** Bit 0 = writer is holding lock
+        Bit 1 = request by a writer to acquire lock (hint to readers to wait)
+        Bit 2..N = number of readers holding lock */
+    state_t state;
+    int is_writer;
+}rwlock_t;
+
 struct SEGMENT {
 		struct ENTRY_POOL_HEAD	entry_pool;
 		long	counter;
 		unsigned int		entry_pool_size;
 		unsigned int		bucket_num;
 		struct BUCKET *bp;
-        pthread_rwlock_t seg_lock;
+        rwlock_t seg_lock;
 };
 
 #define MAX_CAPACITY (1 << 30)
@@ -46,11 +58,13 @@ struct SEGMENT {
 #define SMAP_LOCK_DESTROY(lock) lock_destroy(lock, mp->mt)
 #define SMAP_WRLOCK(lock) wrlock(lock, mp->mt)
 #define SMAP_RDLOCK(lock) rdlock(lock, mp->mt)
-#define SMAP_UNLOCK(lock) unlock(lock, mp->mt)
+#define SMAP_UNLOCK(lock, write) unlock(lock, write, mp->mt)
 
 #define IS_BIG_KEY(pair)  ((pair)->key_len >= sizeof(char *))
 
 
+void acquire(struct spin_rw_mutex *, int);
+void release(struct spin_rw_mutex *, int);
 
 
 static inline int
@@ -260,29 +274,24 @@ RB_PROTOTYPE_STATIC(SMAP_TREE, SMAP_ENT, val_ent, smap_cmp);
 RB_GENERATE_STATIC(SMAP_TREE, SMAP_ENT, val_ent, smap_cmp);
 
 static inline int
-lock_init(pthread_rwlock_t *lock, int mt)
+lock_init(rwlock_t *lock, int mt)
 {
-	if (mt) 
-		return pthread_rwlock_init(lock, NULL);
-	else
-		return (0);
+	lock->state = 0;
+	return 0;
 }
 
 static inline int
-lock_destroy(pthread_rwlock_t *lock, int mt)
+lock_destroy(rwlock_t *lock, int mt)
 {
-	if (mt) 
-		return pthread_rwlock_destroy(lock);
-	else
 		return (0);
 }
 
 static inline void
-rdlock(pthread_rwlock_t *lock, int mt)
+rdlock(rwlock_t *lock, int mt)
 {
 	if (mt) {
-		int rc;
-		rc = pthread_rwlock_rdlock(lock);
+		int rc = 0;
+		acquire(lock, 0);
 		if (rc != 0) {
 			printf("lock! error: %d: %s \n", __LINE__, strerror(rc));
 			exit(1);
@@ -291,11 +300,11 @@ rdlock(pthread_rwlock_t *lock, int mt)
 }
 
 static inline void
-wrlock(pthread_rwlock_t *lock, int mt)
+wrlock(rwlock_t *lock, int mt)
 {
 	if (mt) {
-		int rc;
-		rc = pthread_rwlock_wrlock(lock);
+		int rc = 0;
+		acquire(lock, 1);
 		if (rc != 0) {
 			printf("lock! error: %d: %s \n", __LINE__, strerror(rc));
 			exit(1);
@@ -304,12 +313,12 @@ wrlock(pthread_rwlock_t *lock, int mt)
 }
 
 static inline void
-unlock(pthread_rwlock_t *lock, int mt)
+unlock(rwlock_t *lock, int write, int mt)
 {
 	if (mt) {
-		int rc;
+		int rc = 0;
 	
-		rc = pthread_rwlock_unlock(lock);
+		release(lock, write);
 		if (rc != 0) {
 			printf("lock! error: %d: %s \n", __LINE__, strerror(rc));
 			exit(1);
@@ -530,7 +539,7 @@ smap_deinit(struct SMAP *mp)
 		}
 		free(sp->bp);
 		entry_deinit(sp);
-		SMAP_UNLOCK(&(sp->seg_lock));
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		SMAP_LOCK_DESTROY(&(sp->seg_lock));
 	}
 	free(mp->seg);
@@ -571,7 +580,7 @@ smap_clear(struct SMAP *mp, int start)
 		SMAP_WRLOCK(&(sp->seg_lock));
 		old_bp = sp->bp;
 		sp->bp = new_bp;
-		SMAP_UNLOCK(&(sp->seg_lock));
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		for (j = 0; j < sp->bucket_num; j++) {
 			bp = &(old_bp[j]);
 			RB_FOREACH_SAFE(np, SMAP_TREE, &(bp->root), tnp) {
@@ -600,7 +609,7 @@ smap_clear(struct SMAP *mp, int start)
 		 */
 		SMAP_WRLOCK(&(sp->seg_lock));
 		if (sp->entry_pool_size >= new_pool_size) {
-			SMAP_UNLOCK(&(sp->seg_lock));
+			SMAP_UNLOCK(&(sp->seg_lock), 1);
 
 			SLIST_FOREACH_SAFE(np, &new_pool, mem_ent, tnp) {
 				SLIST_REMOVE(&new_pool, np, SMAP_ENT, mem_ent);
@@ -610,7 +619,7 @@ smap_clear(struct SMAP *mp, int start)
 			old_pool = sp->entry_pool;
 			sp->entry_pool = new_pool;
 			sp->entry_pool_size = new_pool_size;
-			SMAP_UNLOCK(&(sp->seg_lock));
+			SMAP_UNLOCK(&(sp->seg_lock), 1);
 	
 			SLIST_FOREACH_SAFE(np, &old_pool, mem_ent, tnp) {
 				SLIST_REMOVE(&new_pool, np, SMAP_ENT, mem_ent);
@@ -659,7 +668,7 @@ smap_insert(struct SMAP *mp, struct PAIR *pair, int lock)
 	entry = entry_alloc(mp, sp);
 	if (entry == NULL) {
 		if (lock)
-			SMAP_UNLOCK(&(sp->seg_lock));
+			SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (SMAP_OOM);
 	}
 	
@@ -676,11 +685,11 @@ smap_insert(struct SMAP *mp, struct PAIR *pair, int lock)
 		sp->counter++;
 		bp->counter++;
 		if (lock)
-			SMAP_UNLOCK(&(sp->seg_lock));
+			SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (SMAP_OK);
 	} else {
 		if (lock)
-			SMAP_UNLOCK(&(sp->seg_lock));
+			SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (SMAP_DUPLICATE_KEY);
 	}
 }
@@ -716,7 +725,7 @@ smap_delete(struct SMAP *mp, struct PAIR *pair, int lock)
 	res = RB_FIND(SMAP_TREE, &(bp->root), &entry);
 	if (res == NULL) {
 		if (lock)
-			SMAP_UNLOCK(&(sp->seg_lock));
+			SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (SMAP_NONEXISTENT_KEY);
 	}
 	RB_REMOVE(SMAP_TREE, &(bp->root), res);
@@ -729,7 +738,7 @@ smap_delete(struct SMAP *mp, struct PAIR *pair, int lock)
 
 	entry_free(mp, sp, res);
 	if (lock)
-		SMAP_UNLOCK(&(sp->seg_lock));
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
 	return (SMAP_OK);
 }
 
@@ -807,7 +816,7 @@ smap_get(struct SMAP *mp, struct PAIR *pair)
 	
 	SMAP_RDLOCK(&(sp->seg_lock));
 	rc = RB_FIND(SMAP_TREE, &(bp->root), &entry);
-	SMAP_UNLOCK(&(sp->seg_lock));
+	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	if (rc == NULL) {
 		return (NULL);
 	} else {
@@ -847,12 +856,12 @@ smap_update(struct SMAP *mp, struct PAIR *pair)
 	
 	/* if no entry */
 	if (rc == NULL) {
-		SMAP_UNLOCK(&(sp->seg_lock));
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (NULL);
 	} else {
 		old_data = rc->pair.data;
 		rc->pair.data = pair->data;
-		SMAP_UNLOCK(&(sp->seg_lock));
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (old_data);
 	}
 }
@@ -890,12 +899,12 @@ smap_traverse(
 				smap_pair_copyout(keybuf, &pair, &(np->pair));
 				rc = routine(mp, &pair);
 				if (rc == SMAP_BREAK) {
-					SMAP_UNLOCK(&(sp->seg_lock));
+					SMAP_UNLOCK(&(sp->seg_lock), 1);
 					goto out;
 				}
 			}
 		}
-		SMAP_UNLOCK(&(sp->seg_lock));
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
 	}
 	out:
 	return 0;
@@ -932,7 +941,7 @@ smap_traverse_num(
 					smap_pair_copyout(keybuf, &pair, &(np->pair));
 					rc = routine(mp, &pair);
 					if (rc == SMAP_BREAK) {
-						SMAP_UNLOCK(&(sp->seg_lock));
+						SMAP_UNLOCK(&(sp->seg_lock), 1);
 						goto out;
 					}
 				} else {
@@ -940,7 +949,7 @@ smap_traverse_num(
 				}
 			}
 		}
-		SMAP_UNLOCK(&(sp->seg_lock));
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
 	}
 	out:
 	return 0;
@@ -980,7 +989,7 @@ smap_traverse_str(
 					smap_pair_copyout(keybuf, &pair, &(np->pair));
 					rc = routine(mp, &pair);
 					if (rc == SMAP_BREAK) {
-						SMAP_UNLOCK(&(sp->seg_lock));
+						SMAP_UNLOCK(&(sp->seg_lock), 1);
 						goto out;
 					}
 				} else {
@@ -988,7 +997,7 @@ smap_traverse_str(
 				}
 			}
 		}
-		SMAP_UNLOCK(&(sp->seg_lock));
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
 	}
 	out:
 	return 0;
@@ -1016,13 +1025,13 @@ smap_get_first(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 			
 			if (np) {
 				smap_pair_copyout(keybuf, pair, &(np->pair));
-				SMAP_UNLOCK(&(sp->seg_lock));
+				SMAP_UNLOCK(&(sp->seg_lock), 0);
 				return (pair);
 			} else {
 				continue;
 			}
 		}
-		SMAP_UNLOCK(&(sp->seg_lock));
+		SMAP_UNLOCK(&(sp->seg_lock), 0);
 	}
 	return (NULL);
 }
@@ -1050,14 +1059,14 @@ smap_get_first_num(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 			if (np) {
 				if (np->pair.type == KEYTYPE_NUM) {
 					smap_pair_copyout(keybuf, pair, &(np->pair));
-					SMAP_UNLOCK(&(sp->seg_lock));
+					SMAP_UNLOCK(&(sp->seg_lock), 0);
 					return (pair);
 				} else {
 					continue;
 				}
 			}
 		}
-		SMAP_UNLOCK(&(sp->seg_lock));
+		SMAP_UNLOCK(&(sp->seg_lock), 0);
 	}
 	return (NULL);
 }
@@ -1085,14 +1094,14 @@ smap_get_first_str(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 			if (np) {
 				if ( np->pair.type == KEYTYPE_STR) {
 					smap_pair_copyout(keybuf, pair, &(np->pair));
-					SMAP_UNLOCK(&(sp->seg_lock));
+					SMAP_UNLOCK(&(sp->seg_lock), 0);
 					return (pair);
 				} else {
 					continue;
 				}
 			}
 		}
-		SMAP_UNLOCK(&(sp->seg_lock));
+		SMAP_UNLOCK(&(sp->seg_lock), 0);
 	}
 	return (NULL);
 }
@@ -1154,7 +1163,7 @@ smap_get_next(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 	 * to find the pair in the other segment.
 	 * And we also need to unlock the segment above.	 	 
 	 */	
-	SMAP_UNLOCK(&(sp->seg_lock));
+	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	while(1) {
 		sp++;
 		if ((sp - mp->seg) == mp->seg_num)
@@ -1175,7 +1184,7 @@ smap_get_next(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 					continue;
 				}
 			}
-			SMAP_UNLOCK(&(sp->seg_lock));
+			SMAP_UNLOCK(&(sp->seg_lock), 0);
 		}
 	}
 	
@@ -1184,7 +1193,7 @@ smap_get_next(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 	
 got_pair:
 	smap_pair_copyout(keybuf, pair, &(rc->pair));
-	SMAP_UNLOCK(&(sp->seg_lock));
+	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	return (pair);
 }
 
@@ -1249,7 +1258,7 @@ smap_get_next_num(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 	 * to find the pair in the other segment.
 	 * And we also need to unlock the segment above.	 	 
 	 */	
-	SMAP_UNLOCK(&(sp->seg_lock));
+	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	while(1) {
 		sp++;
 		if ((sp - mp->seg) == mp->seg_num)
@@ -1270,7 +1279,7 @@ smap_get_next_num(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 					continue;
 				}
 			}
-			SMAP_UNLOCK(&(sp->seg_lock));
+			SMAP_UNLOCK(&(sp->seg_lock), 0);
 		}
 	}
 	
@@ -1279,7 +1288,7 @@ smap_get_next_num(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 	
 got_pair:
 	smap_pair_copyout(keybuf, pair, &(rc->pair));
-	SMAP_UNLOCK(&(sp->seg_lock));
+	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	return (pair);
 }
 
@@ -1345,7 +1354,7 @@ smap_get_next_str(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 	 * to find the pair in the other segment.
 	 * And we also need to unlock the segment above.	 	 
 	 */	
-	SMAP_UNLOCK(&(sp->seg_lock));
+	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	while(1) {
 		sp++;
 		if ((sp - mp->seg) == mp->seg_num)
@@ -1366,7 +1375,7 @@ smap_get_next_str(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 					continue;
 				}
 			}
-			SMAP_UNLOCK(&(sp->seg_lock));
+			SMAP_UNLOCK(&(sp->seg_lock), 0);
 		}
 	}
 	
@@ -1375,7 +1384,7 @@ smap_get_next_str(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 	
 got_pair:
 	smap_pair_copyout(keybuf, pair, &(rc->pair));
-	SMAP_UNLOCK(&(sp->seg_lock));
+	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	return (pair);
 }
 
