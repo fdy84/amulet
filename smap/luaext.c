@@ -4,7 +4,7 @@
 #include "lualib.h"
 #include "lauxlib.h"
 
-#include "smap2.h"
+#include "smap.h"
 
 #define NUMBUFSIZ       32
 

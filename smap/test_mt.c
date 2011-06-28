@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include "smap2.h"
+#include "smap.h"
 
 #define F_CONNECTING       1      /* connect() in progress */
 #define F_READING          2      /* connect() complete; now reading */
