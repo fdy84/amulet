@@ -28,8 +28,8 @@ typedef int (smap_callback)(struct SMAP *, struct PAIR *);
 
 struct SMAP *smap_init(int, float, int, int, int);
 int smap_deinit(struct SMAP *);
-int smap_insert(struct SMAP *, struct PAIR *, int);
-int smap_delete(struct SMAP *, struct PAIR *, int);
+int smap_insert(struct SMAP *, struct PAIR *);
+int smap_delete(struct SMAP *, struct PAIR *);
 void smap_clear(struct SMAP *, int);
 void *smap_get(struct SMAP *, struct PAIR *);
 void *smap_update(struct SMAP *, struct PAIR *);

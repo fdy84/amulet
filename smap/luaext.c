@@ -57,7 +57,7 @@ static struct SMAP *tabletosmap(lua_State *lua, int index){
       
       SMAP_SET_VALUE(&pair, v);
       
-      smap_insert(map, &pair, 0);
+      smap_insert(map, &pair);
     }
     lua_pop(lua, 1);
   }
@@ -131,9 +131,9 @@ main(void)
 		DEFAULT_ENTRY_POOL_SIZE, 0);
 
 	SMAP_SET_STR_PAIR(&pair, "a", 1, "test111");
-	smap_insert(map, &pair, 0);
+	smap_insert(map, &pair);
 	SMAP_SET_STR_PAIR(&pair, "b", 1, "test222");
-	smap_insert(map, &pair, 0);
+	smap_insert(map, &pair);
 
 	L = luaL_newstate();
 	luaopen_base(L);

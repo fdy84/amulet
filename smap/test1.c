@@ -58,7 +58,7 @@ main(void)
 			SMAP_SET_NUM_PAIR(&pair, i, buf[i]);
 		else
 			SMAP_SET_STR_PAIR(&pair, buf[i], 7, buf[i]);
-		rc = smap_insert(map, &pair, 1);
+		rc = smap_insert(map, &pair);
 		if (rc < 0){
 			printf("i: %d, error: %d\n", i, rc);
 		}
@@ -172,7 +172,7 @@ main(void)
 			SMAP_SET_NUM_KEY(&pair, i);
 		else
 			SMAP_SET_STR_KEY(&pair, buf[i], 7);
-		rc = smap_delete(map, &pair, 1);
+		rc = smap_delete(map, &pair);
 		if (rc != SMAP_OK){
 			printf("i: %d, delete error\n", i);
 		} else {

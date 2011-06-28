@@ -266,9 +266,6 @@ RB_GENERATE_STATIC(SMAP_TREE, SMAP_ENT, val_ent, smap_cmp);
 static inline int
 lock_init(rwlock_t *lock, int mt)
 {
-
-
-
 	if (mt) {
 #ifdef SMAP_RWLOCK
 		lock->state = 0;
@@ -279,7 +276,6 @@ lock_init(rwlock_t *lock, int mt)
 		return (0);
 	}
 	return (0);
-
 }
 
 static inline int
@@ -412,9 +408,6 @@ entry_init(struct SEGMENT *seg, int entry_pool_size)
 	seg->entry_pool_size = entry_pool_size;
 	return (0);
 }
-
-
-
 
 static inline void
 free_res(struct SMAP *mp, int i)
@@ -653,7 +646,7 @@ smap_clear(struct SMAP *mp, int start)
 
 
 int
-smap_insert(struct SMAP *mp, struct PAIR *pair, int lock)
+smap_insert(struct SMAP *mp, struct PAIR *pair)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT *entry;
@@ -679,8 +672,7 @@ smap_insert(struct SMAP *mp, struct PAIR *pair, int lock)
 	sp = get_segment(mp, h);
 	bp = get_bucket(sp, h);
 	
-	if (lock)
-		SMAP_WRLOCK(&(sp->seg_lock));
+	SMAP_WRLOCK(&(sp->seg_lock));
 		
 	/*
 	 * Because we have locked the segment,
@@ -689,8 +681,7 @@ smap_insert(struct SMAP *mp, struct PAIR *pair, int lock)
 	 */
 	entry = entry_alloc(mp, sp);
 	if (entry == NULL) {
-		if (lock)
-			SMAP_UNLOCK(&(sp->seg_lock), 1);
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (SMAP_OOM);
 	}
 	
@@ -706,12 +697,10 @@ smap_insert(struct SMAP *mp, struct PAIR *pair, int lock)
 	if (rc == NULL) {
 		sp->counter++;
 		bp->counter++;
-		if (lock)
-			SMAP_UNLOCK(&(sp->seg_lock), 1);
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (SMAP_OK);
 	} else {
-		if (lock)
-			SMAP_UNLOCK(&(sp->seg_lock), 1);
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (SMAP_DUPLICATE_KEY);
 	}
 }
@@ -721,7 +710,7 @@ smap_insert(struct SMAP *mp, struct PAIR *pair, int lock)
  */
 
 int
-smap_delete(struct SMAP *mp, struct PAIR *pair, int lock)
+smap_delete(struct SMAP *mp, struct PAIR *pair)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT entry;
@@ -741,13 +730,11 @@ smap_delete(struct SMAP *mp, struct PAIR *pair, int lock)
 	sp = get_segment(mp, h);
 	bp = get_bucket(sp, h);
 	
-	if (lock)
-		SMAP_WRLOCK(&(sp->seg_lock));
+	SMAP_WRLOCK(&(sp->seg_lock));
 	
 	res = RB_FIND(SMAP_TREE, &(bp->root), &entry);
 	if (res == NULL) {
-		if (lock)
-			SMAP_UNLOCK(&(sp->seg_lock), 1);
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (SMAP_NONEXISTENT_KEY);
 	}
 	RB_REMOVE(SMAP_TREE, &(bp->root), res);
@@ -759,8 +746,7 @@ smap_delete(struct SMAP *mp, struct PAIR *pair, int lock)
 		free(res->pair.skey);
 
 	entry_free(mp, sp, res);
-	if (lock)
-		SMAP_UNLOCK(&(sp->seg_lock), 1);
+	SMAP_UNLOCK(&(sp->seg_lock), 1);
 	return (SMAP_OK);
 }
 
@@ -849,6 +835,7 @@ smap_get(struct SMAP *mp, struct PAIR *pair)
 
 /*
  * it won't free the value, do it yourself.
+ * XXX Maybe we need to upgrade the rdlock to wrlock
  */
 
 void *
@@ -913,7 +900,6 @@ smap_traverse_unsafe(
 		
 	for (i = 0; i < mp->seg_num; i++) {
 		sp = &(mp->seg[(i + start) % mp->seg_num]);
-		SMAP_WRLOCK(&(sp->seg_lock));
 		for (j = 0; j < sp->bucket_num; j++) {
 			bp = &(sp->bp[j]);
 
@@ -921,12 +907,10 @@ smap_traverse_unsafe(
 				smap_pair_copyout(keybuf, &pair, &(np->pair));
 				rc = routine(mp, &pair);
 				if (rc == SMAP_BREAK) {
-					SMAP_UNLOCK(&(sp->seg_lock), 1);
 					goto out;
 				}
 			}
 		}
-		SMAP_UNLOCK(&(sp->seg_lock), 1);
 	}
 	out:
 	return 0;
@@ -954,7 +938,6 @@ smap_traverse_num_unsafe(
 		
 	for (i = 0; i < mp->seg_num; i++) {
 		sp = &(mp->seg[(i + start) % mp->seg_num]);
-		SMAP_WRLOCK(&(sp->seg_lock));
 		for (j = 0; j < sp->bucket_num; j++) {
 			bp = &(sp->bp[j]);
 
@@ -963,7 +946,6 @@ smap_traverse_num_unsafe(
 					smap_pair_copyout(keybuf, &pair, &(np->pair));
 					rc = routine(mp, &pair);
 					if (rc == SMAP_BREAK) {
-						SMAP_UNLOCK(&(sp->seg_lock), 1);
 						goto out;
 					}
 				} else {
@@ -971,7 +953,6 @@ smap_traverse_num_unsafe(
 				}
 			}
 		}
-		SMAP_UNLOCK(&(sp->seg_lock), 1);
 	}
 	out:
 	return 0;
@@ -1002,7 +983,6 @@ smap_traverse_str_unsafe(
 		
 	for (i = 0; i < mp->seg_num; i++) {
 		sp = &(mp->seg[(i + start) % mp->seg_num]);
-		SMAP_WRLOCK(&(sp->seg_lock));
 		for (j = 0; j < sp->bucket_num; j++) {
 			bp = &(sp->bp[j]);
 
@@ -1011,7 +991,6 @@ smap_traverse_str_unsafe(
 					smap_pair_copyout(keybuf, &pair, &(np->pair));
 					rc = routine(mp, &pair);
 					if (rc == SMAP_BREAK) {
-						SMAP_UNLOCK(&(sp->seg_lock), 1);
 						goto out;
 					}
 				} else {
@@ -1019,7 +998,6 @@ smap_traverse_str_unsafe(
 				}
 			}
 		}
-		SMAP_UNLOCK(&(sp->seg_lock), 1);
 	}
 	out:
 	return 0;
