@@ -646,7 +646,7 @@ smap_clear(struct SMAP *mp, int start)
 
 
 int
-smap_insert(struct SMAP *mp, struct PAIR *pair)
+smap_put(struct SMAP *mp, struct PAIR *pair)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT *entry;

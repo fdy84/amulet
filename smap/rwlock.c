@@ -36,7 +36,7 @@ static inline int64_t _fetchadd8(volatile void *ptr, int64_t addend){
 }
 
 void
-pause(int32_t *count) 
+pause_times(int32_t *count) 
 {
         if( *count<=16 ) {
             _pause(*count);
@@ -48,7 +48,8 @@ pause(int32_t *count)
         }
 }
 
-static inline int64_t _cmpswp8 (volatile void *ptr, int64_t value, int64_t comparand )
+static inline int64_t
+_cmpswp8 (volatile void *ptr, int64_t value, int64_t comparand )
 {
     int64_t result;
     __asm__ __volatile__("lock\ncmpxchg" "q" " %2,%1"
@@ -58,17 +59,16 @@ static inline int64_t _cmpswp8 (volatile void *ptr, int64_t value, int64_t compa
     return result;
 }
 
-static inline uint64_t CAS(volatile uint64_t *addr, uint64_t newv, uint64_t oldv) {
-    // ICC (9.1 and 10.1 tried) unable to do implicit conversion 
-    // from "volatile T*" to "volatile void*", so explicit cast added.
- //   return (uint64_t)(atomic64_cmpxchg((volatile void *)addr, (intptr_t)oldv, (intptr_t)newv));
+static inline uint64_t
+CAS(volatile uint64_t *addr, uint64_t newv, uint64_t oldv) {
  return (uint64_t)_cmpswp8((volatile void *)addr, (intptr_t)newv, (intptr_t)oldv);
 }
 
 
 
 //! Acquire write lock on the given mutex.
-int internal_acquire_writer(struct spin_rw_mutex *m)
+int
+internal_acquire_writer(struct spin_rw_mutex *m)
 {
 
     int32_t backoff = 1;
@@ -81,20 +81,22 @@ int internal_acquire_writer(struct spin_rw_mutex *m)
         } else if( !(s & WRITER_PENDING) ) { // no pending writers
             _or(&(m->state), WRITER_PENDING);
         }
-        pause(&backoff);
+        pause_times(&backoff);
     }
 
     return 0;
 }
 
 //! Release writer lock on the given mutex
-void internal_release_writer(struct spin_rw_mutex *m)
+void
+internal_release_writer(struct spin_rw_mutex *m)
 {
     _and( &m->state, READERS );
 }
 
 //! Acquire read lock on given mutex.
-void internal_acquire_reader(struct spin_rw_mutex *m) 
+void
+internal_acquire_reader(struct spin_rw_mutex *m) 
 {
     int32_t backoff = 1;
     for(;;) {
@@ -106,27 +108,33 @@ void internal_acquire_reader(struct spin_rw_mutex *m)
             // writer got there first, undo the increment
             _fetchadd8( &(m->state), -(intptr_t)ONE_READER );
         }
-        pause(&backoff);
+        pause_times(&backoff);
     }
 }
 
-void internal_release_reader(struct spin_rw_mutex *m)
+void
+internal_release_reader(struct spin_rw_mutex *m)
 {
     _fetchadd8( &(m->state),-(intptr_t)ONE_READER);
 }
 
 //! Acquire lock on given mutex.
-void acquire(struct spin_rw_mutex *m, int write ) {
+void
+acquire(struct spin_rw_mutex *m, int write ) {
     if (write) internal_acquire_writer(m);
     else        internal_acquire_reader(m);
 }
 //! Release lock.
-void release(struct spin_rw_mutex *m, int write) {
+void
+release(struct spin_rw_mutex *m, int write) {
     if (write) internal_release_writer(m);
     else            internal_release_reader(m);
 }
+
+/*
 struct spin_rw_mutex m;
-void *test1111111111(void *argv)
+void *
+test1111111111(void *argv)
 {
 
 	int i, j, k;
@@ -142,7 +150,8 @@ void *test1111111111(void *argv)
 	
 	return;
 }
-void *test2222222222(void *argv)
+void *
+test2222222222(void *argv)
 {
 
 	int i, j, k;
@@ -161,7 +170,8 @@ void *test2222222222(void *argv)
 	return;
 }
 
-void *testw(void *argv)
+void *
+testw(void *argv)
 {
 
 	int i, j, k;
@@ -178,7 +188,7 @@ void *testw(void *argv)
 	
 	return;
 }
-/*
+
 int
 main()
 {
