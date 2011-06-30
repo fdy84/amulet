@@ -1,3 +1,19 @@
+/*-
+ * Copyright (c) 2010-2011 zhuyan <nayuhz@gmail.com>
+ * SMAP: A simple implementation of concurrent hashmap.
+ * Support for integer and string as key (can be mixed).
+ * This is a simple concurrent hashmap implementation that uses the classic
+ * segment-bucket method to complete the concurrent control.
+ * The data structures using a hash table + red-black tree, 
+ * do not use the classic hash table + single linked list. 
+ * The following reasons:
+ * 1. In the conflict resolved, the performance of a single linked list is
+ * worse than the red-black tree.
+ * 2. red-black tree is ordered, which makes it possible to sort keys.
+ * But the red-black tree is relatively space-consuming.
+ */
+ 
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -912,7 +928,7 @@ smap_traverse_unsafe(
 			}
 		}
 	}
-	out:
+out:
 	return 0;
 }
 
