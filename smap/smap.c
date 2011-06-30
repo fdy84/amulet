@@ -452,7 +452,7 @@ smap_init(int capacity , float load_factor, int level, int entry_pool_size, int 
 	int ssize = 1;
 	int cap, c;
 
-	printf("sizeof(smap):\t%d \nsizeof(pair):\t%d \nsizeof(ent):\t%d \nsizeof(seg):\t%d \nsizeof(bucket):\t%d\n",
+	printf("sizeof(smap):\t%lu \nsizeof(pair):\t%lu \nsizeof(ent):\t%lu \nsizeof(seg):\t%lu \nsizeof(bucket):\t%lu\n",
 	 sizeof(struct SMAP), sizeof(struct PAIR), sizeof(struct SMAP_ENT), sizeof(struct SEGMENT), sizeof(struct BUCKET));
 
 	if (!(load_factor > 0) || capacity < 0 || level <= 0)
@@ -791,7 +791,7 @@ smap_get_segment_counter(struct SMAP *mp)
 		return (SMAP_GENERAL_ERROR);
 	
 	for (i = 0; i < mp->seg_num; i++) {
-		printf("segment:%d, num: %d\n", i, mp->seg[i].counter);
+		printf("segment: %d, num: %ld\n", i, mp->seg[i].counter);
 	}
 	return c;
 }
@@ -807,7 +807,7 @@ smap_get_bucket_counter(struct SMAP *mp)
 	
 	for (i = 0; i < mp->seg_num; i++) {
 		for (j = 0; j < mp->seg[i].bucket_num; j++) {
-			printf("segment: %d, bucket: %d, num: %d\n", i, j, mp->seg[i].bp[j].counter);
+			printf("segment: %d, bucket: %d, num: %ld\n", i, j, mp->seg[i].bp[j].counter);
 		}
 	}
 	return c;
@@ -891,6 +891,68 @@ smap_update(struct SMAP *mp, struct PAIR *pair)
 	}
 }
 
+inline static int
+traverse_all(struct SMAP *mp, struct SMAP_TREE *root, smap_callback *routine)
+{
+	struct SMAP_ENT *np;
+	struct SMAP_ENT *tnp;
+	struct PAIR pair;
+	int rc;
+	char keybuf[SMAP_MAX_KEY_LEN+1];
+
+	RB_FOREACH_SAFE(np, SMAP_TREE, root, tnp) {
+		smap_pair_copyout(keybuf, &pair, &(np->pair));
+		rc = routine(mp, &pair);
+		if (rc == SMAP_BREAK)
+			return (SMAP_BREAK);
+	}
+	return (SMAP_OK);
+}
+
+inline static int
+traverse_num(struct SMAP *mp, struct SMAP_TREE *root, smap_callback *routine)
+{
+	struct SMAP_ENT *np;
+	struct SMAP_ENT *tnp;
+	struct PAIR pair;
+	int rc;
+	char keybuf[SMAP_MAX_KEY_LEN+1];
+
+	RB_FOREACH_SAFE(np, SMAP_TREE, root, tnp) {
+		if (np->pair.type == KEYTYPE_NUM) {
+			smap_pair_copyout(keybuf, &pair, &(np->pair));
+			rc = routine(mp, &pair);
+			if (rc == SMAP_BREAK)
+				return (SMAP_BREAK);
+		} else {
+			return (SMAP_OK);
+		}
+	}
+	return (SMAP_OK);
+}
+
+inline static int
+traverse_str(struct SMAP *mp, struct SMAP_TREE *root, smap_callback *routine)
+{
+	struct SMAP_ENT *np;
+	struct SMAP_ENT *tnp;
+	struct PAIR pair;
+	int rc;
+	char keybuf[SMAP_MAX_KEY_LEN+1];
+
+	RB_FOREACH_REVERSE_SAFE(np, SMAP_TREE, root, tnp) {
+		if (np->pair.type == KEYTYPE_STR) {
+			smap_pair_copyout(keybuf, &pair, &(np->pair));
+			rc = routine(mp, &pair);
+			if (rc == SMAP_BREAK)
+				return (SMAP_BREAK);
+		} else {
+			return (SMAP_OK);
+		}
+	}
+	return (SMAP_OK);
+}
+
 /*
  * it won't free the value, do it yourself.
  */
@@ -898,16 +960,13 @@ int
 smap_traverse_unsafe(
 	struct SMAP *mp,
 	smap_callback *routine,
-	unsigned int start)
+	unsigned long key_type,
+	unsigned long start)
 {
 	struct BUCKET *bp;
-	struct SMAP_ENT *np;
-	struct SMAP_ENT *tnp;
 	unsigned int i, j;
 	int rc;
 	struct SEGMENT *sp;
-	struct PAIR pair;
-	char keybuf[SMAP_MAX_KEY_LEN+1];
 	
 	if (mp == NULL || routine == NULL)
 		return (SMAP_GENERAL_ERROR);
@@ -918,109 +977,33 @@ smap_traverse_unsafe(
 		sp = &(mp->seg[(i + start) % mp->seg_num]);
 		for (j = 0; j < sp->bucket_num; j++) {
 			bp = &(sp->bp[j]);
-
-			RB_FOREACH_SAFE(np, SMAP_TREE, &(bp->root), tnp) {
-				smap_pair_copyout(keybuf, &pair, &(np->pair));
-				rc = routine(mp, &pair);
-				if (rc == SMAP_BREAK) {
-					goto out;
-				}
-			}
-		}
-	}
-out:
-	return 0;
-}
-
-int
-smap_traverse_num_unsafe(
-	struct SMAP *mp,
-	smap_callback *routine,
-	unsigned int start)
-{
-	struct BUCKET *bp;
-	struct SMAP_ENT *np;
-	struct SMAP_ENT *tnp;
-	unsigned int i, j;
-	int rc;
-	struct SEGMENT *sp;
-	struct PAIR pair;
-	char keybuf[SMAP_MAX_KEY_LEN+1];
-	
-	if (mp == NULL || routine == NULL)
-		return (SMAP_GENERAL_ERROR);
-	if (start >= mp->seg_num)
-		return (SMAP_GENERAL_ERROR);
-		
-	for (i = 0; i < mp->seg_num; i++) {
-		sp = &(mp->seg[(i + start) % mp->seg_num]);
-		for (j = 0; j < sp->bucket_num; j++) {
-			bp = &(sp->bp[j]);
-
-			RB_FOREACH_SAFE(np, SMAP_TREE, &(bp->root), tnp) {
-				if (np->pair.type == KEYTYPE_NUM) {
-					smap_pair_copyout(keybuf, &pair, &(np->pair));
-					rc = routine(mp, &pair);
-					if (rc == SMAP_BREAK) {
-						goto out;
-					}
-				} else {
+			switch (key_type) {
+				case KEYTYPE_ALL:
+					rc = traverse_all(mp, &(bp->root), routine);
 					break;
-				}
-			}
-		}
-	}
-	out:
-	return 0;
-}
-
-/*
- * it won't free the value, do it yourself.
- */
-int
-smap_traverse_str_unsafe(
-	struct SMAP *mp,
-	smap_callback *routine,
-	unsigned int start)
-{
-	struct BUCKET *bp;
-	struct SMAP_ENT *np;
-	struct SMAP_ENT *tnp;
-	unsigned int i, j;
-	int rc;
-	struct SEGMENT *sp;
-	struct PAIR pair;
-	char keybuf[SMAP_MAX_KEY_LEN+1];
-	
-	if (mp == NULL || routine == NULL)
-		return (SMAP_GENERAL_ERROR);
-	if (start >= mp->seg_num)
-		return (SMAP_GENERAL_ERROR);
-		
-	for (i = 0; i < mp->seg_num; i++) {
-		sp = &(mp->seg[(i + start) % mp->seg_num]);
-		for (j = 0; j < sp->bucket_num; j++) {
-			bp = &(sp->bp[j]);
-
-			RB_FOREACH_REVERSE_SAFE(np, SMAP_TREE, &(bp->root), tnp) {
-				if (np->pair.type == KEYTYPE_STR) {
-					smap_pair_copyout(keybuf, &pair, &(np->pair));
-					rc = routine(mp, &pair);
-					if (rc == SMAP_BREAK) {
-						goto out;
-					}
-				} else {
+				case KEYTYPE_NUM:
+					rc = traverse_num(mp, &(bp->root), routine);
 					break;
-				}
+				case KEYTYPE_STR:
+					rc = traverse_str(mp, &(bp->root), routine);
+					break;
+				default:
+					return (SMAP_GENERAL_ERROR);
 			}
+			if (rc == SMAP_BREAK)
+				return (SMAP_OK);
 		}
 	}
-	out:
-	return 0;
+	return (SMAP_OK);
 }
 
 struct PAIR *
-smap_get_first(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
+smap_get_first(
+	struct SMAP *mp,
+	struct PAIR *pair,
+	char *keybuf,
+	unsigned long key_type,
+	unsigned long start)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT *np;
@@ -1038,96 +1021,40 @@ smap_get_first(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 			bp = &(sp->bp[j]);
 			
 			np = RB_MIN(SMAP_TREE, &(bp->root));
-			
-			if (np) {
+			switch (key_type) {
+				case KEYTYPE_ALL:
+				case KEYTYPE_NUM:
+					np = RB_MIN(SMAP_TREE, &(bp->root));
+					break;
+				case KEYTYPE_STR:
+					np = RB_MAX(SMAP_TREE, &(bp->root));
+					break;
+				default:
+					return (NULL);
+			}
+			if (np && (np->pair.type & KEYTYPE_ALL)) {
 				smap_pair_copyout(keybuf, pair, &(np->pair));
 				SMAP_UNLOCK(&(sp->seg_lock), 0);
 				return (pair);
-			} else {
-				continue;
-			}
+			} 
 		}
 		SMAP_UNLOCK(&(sp->seg_lock), 0);
 	}
 	return (NULL);
 }
 
-struct PAIR *
-smap_get_first_num(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
-{
-	struct BUCKET *bp;
-	struct SMAP_ENT *np;
-	unsigned int i, j;
-	struct SEGMENT *sp;
-
-	if (mp == NULL || pair == NULL || keybuf == NULL)
-		return (NULL);
-
-	for (i = 0; i < mp->seg_num; i++) {
-		sp = &(mp->seg[(i + start) % mp->seg_num]);
-
-		SMAP_RDLOCK(&(sp->seg_lock));
-		for (j = 0; j < sp->bucket_num; j++) {
-			bp = &(sp->bp[j]);
-			
-			np = RB_MIN(SMAP_TREE, &(bp->root));
-			
-			if (np) {
-				if (np->pair.type == KEYTYPE_NUM) {
-					smap_pair_copyout(keybuf, pair, &(np->pair));
-					SMAP_UNLOCK(&(sp->seg_lock), 0);
-					return (pair);
-				} else {
-					continue;
-				}
-			}
-		}
-		SMAP_UNLOCK(&(sp->seg_lock), 0);
-	}
-	return (NULL);
-}
-
-struct PAIR *
-smap_get_first_str(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
-{
-	struct BUCKET *bp;
-	struct SMAP_ENT *np;
-	unsigned int i, j;
-	struct SEGMENT *sp;
-
-	if (mp == NULL || pair == NULL || keybuf == NULL)
-		return (NULL);
-
-	for (i = 0; i < mp->seg_num; i++) {
-		sp = &(mp->seg[(i + start) % mp->seg_num]);
-
-		SMAP_RDLOCK(&(sp->seg_lock));
-		for (j = 0; j < sp->bucket_num; j++) {
-			bp = &(sp->bp[j]);
-			
-			np = RB_MAX(SMAP_TREE, &(bp->root));
-			
-			if (np) {
-				if ( np->pair.type == KEYTYPE_STR) {
-					smap_pair_copyout(keybuf, pair, &(np->pair));
-					SMAP_UNLOCK(&(sp->seg_lock), 0);
-					return (pair);
-				} else {
-					continue;
-				}
-			}
-		}
-		SMAP_UNLOCK(&(sp->seg_lock), 0);
-	}
-	return (NULL);
-}
 /*
  *  Because the pair may be deleted, 
  *  so the next pair can not be got by "pair 's next",
  *  only by the value of the current pair to find the next pair.
  */
 struct PAIR *
-smap_get_next(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
+smap_get_next(
+	struct SMAP *mp,
+	struct PAIR *pair,
+	char *keybuf,
+	unsigned long key_type,
+	unsigned long start)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT *rc;
@@ -1151,204 +1078,27 @@ smap_get_next(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 	SMAP_RDLOCK(&(sp->seg_lock));
 
 	/* Get the next pair by the value of current pair */
-	rc = RB_NFIND(SMAP_TREE, &(bp->root), &entry);
-	if (rc && smap_cmp(rc, &entry) == 0) {
-		/* We got the itself, get the next one */
-		rc = RB_NEXT(SMAP_TREE, &(bp->root), rc);
-	}
-	
-	if (rc) 
-		goto got_pair;
-
-	/* 
-	 * If we did not get pair, look in the segment for each bucket,
-	 * until you get the next pair in a tree.
-	 */
-	for (bp++; (bp - sp->bp) < sp->bucket_num; bp++) {
-		rc = RB_MIN(SMAP_TREE, &(bp->root));
-		
-		if (rc) {
-			goto got_pair;
-		} else {
-			continue;
-		}
-	}
-	/*
-	 * Find all the bucket from the previous segment?
-	 * OK, it can only traverse the rest of the segment,
-	 * to find the pair in the other segment.
-	 * And we also need to unlock the segment above.	 	 
-	 */	
-	SMAP_UNLOCK(&(sp->seg_lock), 0);
-	while(1) {
-		sp++;
-		if ((sp - mp->seg) == mp->seg_num)
-			sp = mp->seg;
-		if (sp == (mp->seg + (start & mp->seg_shift))) {
-			/* LOOP Back ! return NULL */
-			return (NULL);
-		} else {
-			SMAP_RDLOCK(&(sp->seg_lock));
-			for (i = 0; i < sp->bucket_num; i++) {
-				bp = &(sp->bp[i]);
-				
-				rc = RB_MIN(SMAP_TREE, &(bp->root));
-				
-				if(rc) {
-					goto got_pair;
-				} else {
-					continue;
-				}
+	switch (key_type) {
+		case KEYTYPE_ALL:
+		case KEYTYPE_NUM:
+			rc = RB_NFIND(SMAP_TREE, &(bp->root), &entry);
+			if (rc && smap_cmp(rc, &entry) == 0) {
+				/* We got the itself, get the next one */
+				rc = RB_NEXT(SMAP_TREE, &(bp->root), rc);
 			}
-			SMAP_UNLOCK(&(sp->seg_lock), 0);
-		}
-	}
-	
-	/* UNREACHED! */
-	return (NULL);
-	
-got_pair:
-	smap_pair_copyout(keybuf, pair, &(rc->pair));
-	SMAP_UNLOCK(&(sp->seg_lock), 0);
-	return (pair);
-}
-
-/*
- *  Because the pair may be deleted, 
- *  so the next pair can not be got by "pair 's next",
- *  only by the value of the current pair to find the next pair.
- */
-struct PAIR *
-smap_get_next_num(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
-{
-	struct BUCKET *bp;
-	struct SMAP_ENT *rc;
-	struct SMAP_ENT entry;
-	int h;
-	unsigned int i;
-	struct SEGMENT *sp;
-
-	if (mp == NULL || pair == NULL)
-		return (NULL);
-
-	if (pair->type == KEYTYPE_NUM) {
-		h = nhash((int)pair->ikey);
-		SMAP_SET_NUM_KEY(&(entry.pair), pair->ikey);
-	} else {
-		return (NULL);
-	}
-	
-	entry.hash = h;
-
-	sp = get_segment(mp, h);
-	bp = get_bucket(sp, h);
-	
-	SMAP_RDLOCK(&(sp->seg_lock));
-
-	/* Get the next pair by the value of current pair */
-	rc = RB_NFIND(SMAP_TREE, &(bp->root), &entry);
-	if (rc && smap_cmp(rc, &entry) == 0) {
-		/* We got the itself, get the next one */
-		rc = RB_NEXT(SMAP_TREE, &(bp->root), rc);
-	}
-	
-	if (rc && rc->pair.type == KEYTYPE_NUM) 
-		goto got_pair;
-
-	/* 
-	 * If we did not get pair, look in the segment for each bucket,
-	 * until you get the next pair in a tree.
-	 */
-	for (bp++; (bp - sp->bp) < sp->bucket_num; bp++) {
-		rc = RB_MIN(SMAP_TREE, &(bp->root));
-		
-		if (rc && rc->pair.type == KEYTYPE_NUM) {
-			goto got_pair;
-		} else {
-			continue;
-		}
-	}
-	/*
-	 * Find all the bucket from the previous segment?
-	 * OK, it can only traverse the rest of the segment,
-	 * to find the pair in the other segment.
-	 * And we also need to unlock the segment above.	 	 
-	 */	
-	SMAP_UNLOCK(&(sp->seg_lock), 0);
-	while(1) {
-		sp++;
-		if ((sp - mp->seg) == mp->seg_num)
-			sp = mp->seg;
-		if (sp == (mp->seg + (start & mp->seg_shift))) {
-			/* LOOP Back ! return NULL */
-			return (NULL);
-		} else {
-			SMAP_RDLOCK(&(sp->seg_lock));
-			for (i = 0; i < sp->bucket_num; i++) {
-				bp = &(sp->bp[i]);
-				
-				rc = RB_MIN(SMAP_TREE, &(bp->root));
-				
-				if(rc && rc->pair.type == KEYTYPE_NUM) {
-					goto got_pair;
-				} else {
-					continue;
-				}
+			break;
+		case KEYTYPE_STR:
+			rc = RB_PFIND(SMAP_TREE, &(bp->root), &entry);
+			if (rc && smap_cmp(rc, &entry) == 0) {
+				/* We got the itself, get the prev one */
+				rc = RB_PREV(SMAP_TREE, &(bp->root), rc);
 			}
-			SMAP_UNLOCK(&(sp->seg_lock), 0);
-		}
+			break;
+		default:
+			return (NULL);
 	}
-	
-	/* UNREACHED! */
-	return (NULL);
-	
-got_pair:
-	smap_pair_copyout(keybuf, pair, &(rc->pair));
-	SMAP_UNLOCK(&(sp->seg_lock), 0);
-	return (pair);
-}
 
-/*
- *  Because the pair may be deleted, 
- *  so the next pair can not be got by "pair 's next",
- *  only by the value of the current pair to find the next pair.
- */
-struct PAIR *
-smap_get_next_str(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
-{
-	struct BUCKET *bp;
-	struct SMAP_ENT *rc;
-	struct SMAP_ENT entry;
-	int h;
-	unsigned int i;
-	struct SEGMENT *sp;
-
-	if (mp == NULL || pair == NULL)
-		return (NULL);
-	
-	if (pair->type == KEYTYPE_STR) {
-		h = shash((char *)pair->skey, pair->key_len);
-		smap_pair_set_str_key(&(entry.pair), pair);
-	} else {
-		return (NULL);
-	}
-	
-
-	entry.hash = h;
-
-	sp = get_segment(mp, h);
-	bp = get_bucket(sp, h);
-	
-	SMAP_RDLOCK(&(sp->seg_lock));
-
-	/* Get the next pair by the value of current pair */
-	rc = RB_PFIND(SMAP_TREE, &(bp->root), &entry);
-	if (rc && smap_cmp(rc, &entry) == 0) {
-		/* We got the itself, get the prev one */
-		rc = RB_PREV(SMAP_TREE, &(bp->root), rc);
-	}
-	
-	if (rc && rc->pair.type == KEYTYPE_STR) 
+	if (rc && (rc->pair.type & KEYTYPE_ALL)) 
 		goto got_pair;
 
 	/* 
@@ -1356,36 +1106,55 @@ smap_get_next_str(struct SMAP *mp, struct PAIR *pair, char *keybuf, int start)
 	 * until you get the next pair in a tree.
 	 */
 	for (bp++; (bp - sp->bp) < sp->bucket_num; bp++) {
-		rc = RB_MAX(SMAP_TREE, &(bp->root));
-		
-		if (rc && rc->pair.type == KEYTYPE_STR) {
-			goto got_pair;
-		} else {
-			continue;
-		}
-	}
-	/*
-	 * Find all the bucket from the previous segment?
-	 * OK, it can only traverse the rest of the segment,
-	 * to find the pair in the other segment.
-	 * And we also need to unlock the segment above.	 	 
-	 */	
-	SMAP_UNLOCK(&(sp->seg_lock), 0);
-	while(1) {
-		sp++;
-		if ((sp - mp->seg) == mp->seg_num)
-			sp = mp->seg;
-		if (sp == (mp->seg + (start & mp->seg_shift))) {
-			/* LOOP Back ! return NULL */
-			return (NULL);
-		} else {
-			SMAP_RDLOCK(&(sp->seg_lock));
-			for (i = 0; i < sp->bucket_num; i++) {
-				bp = &(sp->bp[i]);
-				
+		switch (key_type) {
+			case KEYTYPE_ALL:
+			case KEYTYPE_NUM:
+				rc = RB_MIN(SMAP_TREE, &(bp->root));
+				break;
+			case KEYTYPE_STR:
 				rc = RB_MAX(SMAP_TREE, &(bp->root));
+				break;
+			default:
+				return (NULL);
+		}
+		
+		if (rc && (rc->pair.type & KEYTYPE_ALL)) {
+			goto got_pair;
+		} else {
+			continue;
+		}
+	}
+	/*
+	 * Find all the bucket from the previous segment?
+	 * OK, it can only traverse the rest of the segment,
+	 * to find the pair in the other segment.
+	 * And we also need to unlock the segment above.	 	 
+	 */	
+	SMAP_UNLOCK(&(sp->seg_lock), 0);
+	while(1) {
+		sp++;
+		if ((sp - mp->seg) == mp->seg_num)
+			sp = mp->seg;
+		if (sp == (mp->seg + (start & mp->seg_shift))) {
+			/* LOOP Back ! return NULL */
+			return (NULL);
+		} else {
+			SMAP_RDLOCK(&(sp->seg_lock));
+			for (i = 0; i < sp->bucket_num; i++) {
+				bp = &(sp->bp[i]);
 				
-				if(rc && rc->pair.type == KEYTYPE_STR) {
+				switch (key_type) {
+					case KEYTYPE_ALL:
+					case KEYTYPE_NUM:
+						rc = RB_MIN(SMAP_TREE, &(bp->root));
+						break;
+					case KEYTYPE_STR:
+						rc = RB_MAX(SMAP_TREE, &(bp->root));
+						break;
+					default:
+						return (NULL);
+				}
+				if(rc && (rc->pair.type & KEYTYPE_ALL)) {
 					goto got_pair;
 				} else {
 					continue;
@@ -1403,5 +1172,4 @@ got_pair:
 	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	return (pair);
 }
-
 

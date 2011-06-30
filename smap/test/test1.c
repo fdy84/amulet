@@ -58,7 +58,7 @@ main(void)
 			SMAP_SET_NUM_PAIR(&pair, i, buf[i]);
 		else
 			SMAP_SET_STR_PAIR(&pair, buf[i], 7, buf[i]);
-		rc = smap_insert(map, &pair);
+		rc = smap_put(map, &pair);
 		if (rc < 0){
 			printf("i: %d, error: %d\n", i, rc);
 		}
@@ -110,8 +110,8 @@ main(void)
 	i = 0;
 	memset(&pair, 0, sizeof(pair));
 	gettimeofday (&tvpre , &tz);
-	for (p = smap_get_first(map, &pair, keybuf, 0);
-		p != NULL; p = smap_get_next(map, p, keybuf, 0)) {
+	for (p = smap_get_first(map, &pair, keybuf, KEYTYPE_ALL, 0);
+		p != NULL; p = smap_get_next(map, p, keybuf, KEYTYPE_ALL, 0)) {
 		i++;
 		/*
 		int c = SMAP_IS_NUM(&pair);
@@ -128,8 +128,8 @@ main(void)
 	i = 0;
 	memset(&pair, 0, sizeof(pair));
 	gettimeofday (&tvpre , &tz);
-	for (p = smap_get_first_num(map, &pair, keybuf, 0);
-		p != NULL; p = smap_get_next_num(map, p, keybuf, 0)) {
+	for (p = smap_get_first(map, &pair, keybuf, KEYTYPE_NUM, 0);
+		p != NULL; p = smap_get_next(map, p, keybuf, KEYTYPE_NUM, 0)) {
 		i++;
 	}
 	gettimeofday (&tvafter , &tz);
@@ -139,8 +139,8 @@ main(void)
 	i = 0;
 	memset(&pair, 0, sizeof(pair));
 	gettimeofday (&tvpre , &tz);
-	for (p = smap_get_first_str(map, &pair, keybuf, 0);
-		p != NULL; p = smap_get_next_str(map, p, keybuf, 0)) {
+	for (p = smap_get_first(map, &pair, keybuf, KEYTYPE_STR, 0);
+		p != NULL; p = smap_get_next(map, p, keybuf, KEYTYPE_STR, 0)) {
 		i++;
 	}
 	gettimeofday (&tvafter , &tz);
@@ -148,19 +148,19 @@ main(void)
 	
 
 	gettimeofday (&tvpre , &tz);
-	smap_traverse_unsafe(map, shit, 0);
+	smap_traverse_unsafe(map, shit, KEYTYPE_ALL, 0);
 	gettimeofday (&tvafter , &tz);
 	int traverse2 = (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000;
 
 
 	gettimeofday (&tvpre , &tz);
-	smap_traverse_num_unsafe(map, shit, 0);
+	smap_traverse_unsafe(map, shit, KEYTYPE_NUM, 0);
 	gettimeofday (&tvafter , &tz);
 	int traverse2_num = (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000;
 
 
 	gettimeofday (&tvpre , &tz);
-	smap_traverse_str_unsafe(map, shit, 0);
+	smap_traverse_unsafe(map, shit, KEYTYPE_STR, 0);
 	gettimeofday (&tvafter , &tz);
 	int traverse2_str = (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000;
 

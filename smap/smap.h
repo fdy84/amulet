@@ -33,21 +33,21 @@ int smap_delete(struct SMAP *, struct PAIR *);
 void smap_clear(struct SMAP *, int);
 void *smap_get(struct SMAP *, struct PAIR *);
 void *smap_update(struct SMAP *, struct PAIR *);
-int smap_traverse_unsafe(struct SMAP *, smap_callback *, unsigned int);
-int smap_traverse_num_unsafe(struct SMAP *, smap_callback *, unsigned int);
-int smap_traverse_str_unsafe(struct SMAP *, smap_callback *, unsigned int);
+int smap_traverse_unsafe
+	(struct SMAP *, smap_callback *, unsigned long, unsigned long);
 int smap_get_elm_num(struct SMAP *);
-struct PAIR *smap_get_first(struct SMAP *, struct PAIR *, char *, int);
-struct PAIR *smap_get_next(struct SMAP *, struct PAIR *, char *, int);
-struct PAIR *smap_get_first_num(struct SMAP *, struct PAIR *, char *, int);
-struct PAIR *smap_get_next_num(struct SMAP *, struct PAIR *, char *, int);
-struct PAIR *smap_get_first_str(struct SMAP *, struct PAIR *, char *, int);
-struct PAIR *smap_get_next_str(struct SMAP *, struct PAIR *, char *, int);
+struct PAIR *smap_get_first
+	(struct SMAP *, struct PAIR *, char *, unsigned long, unsigned long);
+struct PAIR *smap_get_next
+	(struct SMAP *, struct PAIR *, char *, unsigned long, unsigned long);
 
 uint64_t smap_get_segment_counter(struct SMAP *);
 uint64_t smap_get_bucket_counter(struct SMAP *);
-#define KEYTYPE_NUM 0x1
-#define KEYTYPE_STR 0x2
+
+#define KEYTYPE_NUM (0x1<<0)
+#define KEYTYPE_STR (0x1<<1)
+#define KEYTYPE_ALL (KEYTYPE_NUM|KEYTYPE_STR)
+
 
 #define DEFAULT_ENTRY_POOL_SIZE -1
 #define DEFAULT_INITIAL_CAPACITY 16
