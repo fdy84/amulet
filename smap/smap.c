@@ -55,7 +55,7 @@ struct SMAP_ENT {
 		SLIST_ENTRY(SMAP_ENT) mem_ent;	/* memory pool entry */
 		RB_ENTRY(SMAP_ENT)    val_ent;	/* the bucket red-black tree entry */
 	};
-	int ref_count;	/* reserved */
+	uint32_t copied_data;	/* reserved */
 	int hash;	/* the hash code of key, both string or number */
 	struct PAIR pair;	/* the k-v pair */
 };
@@ -63,18 +63,19 @@ struct SMAP_ENT {
 RB_HEAD(SMAP_TREE, SMAP_ENT);
 
 struct BUCKET {
-        long counter;
-        struct SMAP_TREE root;
+        intptr_t counter;	/* the number of smap_ent under the bucket */
+        struct SMAP_TREE root;	/* the root of rbtree */
 };
 SLIST_HEAD(ENTRY_POOL_HEAD, SMAP_ENT);
 
 struct SEGMENT {
-		struct ENTRY_POOL_HEAD	entry_pool;
-		long	counter;
-		unsigned int		entry_pool_size;
-		unsigned int		bucket_num;
-		struct BUCKET *bp;
-        rwlock_t seg_lock;
+		struct ENTRY_POOL_HEAD	entry_pool;	/* for allocation of smap_ent */
+		intptr_t	counter;	/* the number of smap_ent under the bucket */
+		uint32_t		entry_pool_size;
+		/* the number of buckets under the segment*/
+		uint32_t		bucket_num;
+		struct BUCKET *bp;	/* the bucket array, the true hash table */
+        rwlock_t seg_lock;	/* lock the sgemtn in rwlock */
 };
 
 #define MAX_CAPACITY (1 << 30)
@@ -87,6 +88,7 @@ struct SEGMENT {
 #define SMAP_UNLOCK(lock, write) unlock(lock, write, mp->mt)
 
 #define IS_BIG_KEY(pair)  ((pair)->key_len >= sizeof(char *))
+#define IS_BIG_VALUE(pair)  ((pair)->data_len > sizeof(void *))
 
 static inline int
 memrcmp(const void *v1, const void *v2, size_t n)
@@ -144,7 +146,7 @@ scmp(struct SMAP_ENT *a, struct SMAP_ENT *b)
 
 	if (c == 0) {
 		if (IS_BIG_KEY(&(a->pair))) {
-			c = memrcmp(a->pair.skey, b->pair.skey, a->pair.key_len);
+			c = memcmp(a->pair.skey, b->pair.skey, a->pair.key_len);
 		} else {
 			c = (uint64_t)(a->pair.skey) - (uint64_t)(b->pair.skey);
 		}
@@ -192,10 +194,12 @@ check_str_pair(struct PAIR *pair)
 }
 
 static inline int
-smap_pair_copyin(struct PAIR *dst, struct PAIR *src)
+smap_pair_copyin(struct PAIR *dst, struct PAIR *src, int copy_data)
 {
+	/* copy the key */
 	if (src->type == KEYTYPE_NUM) {
-		SMAP_SET_NUM_PAIR(dst, src->ikey, src->data);
+		dst->ikey = src->ikey;
+		dst->key_len = 0;
 	} else if (src->type == KEYTYPE_STR) {
 		if (IS_BIG_KEY(src)) {
 			dst->skey = (char *)malloc(src->key_len + 1);
@@ -208,9 +212,23 @@ smap_pair_copyin(struct PAIR *dst, struct PAIR *src)
 			((char *)(&(dst->skey)))[src->key_len] = '\0';
 		}
 		dst->key_len = src->key_len;
-		dst->data = src->data;
 	} else {
 		return (SMAP_GENERAL_ERROR);
+	}
+	
+	/* copy the value */
+	if (copy_data) {
+		if (IS_BIG_VALUE(src)) {
+			dst->data = malloc(src->data_len);
+			if (dst->data == NULL)
+				return (SMAP_OOM);
+			memcpy(dst->data, src->data, src->data_len);
+		} else {
+			memcpy(&(dst->data), src->data, src->data_len);
+		}
+		dst->data_len = src->data_len;
+	} else {
+		dst->data = src->data;
 	}
 	dst->type = src->type;
 	
@@ -578,6 +596,8 @@ smap_deinit(struct SMAP *mp)
 				RB_REMOVE(SMAP_TREE, &(bp->root), np);
 				if (IS_BIG_KEY(&(np->pair)))
 					free(np->pair.skey);
+				if (np->copied_data && IS_BIG_VALUE(&(np->pair)))
+					free(np->pair.data);
 				
 				/* XXX np is alloc from entry_alloc, free to new mempool? */
 				free(np);
@@ -634,7 +654,8 @@ smap_clear(struct SMAP *mp, int start)
 				if(np->pair.type == KEYTYPE_STR && 
 					IS_BIG_KEY(&(np->pair)))
 					free(np->pair.skey);
-				
+				if (np->copied_data && IS_BIG_VALUE(&(np->pair)))
+					free(np->pair.data);
 				/* XXX new_pool_size < bucket_num ? or a varible? */
 				if (new_pool_size < sp->bucket_num) {
 					SLIST_INSERT_HEAD(&new_pool, np, mem_ent);
@@ -677,7 +698,7 @@ smap_clear(struct SMAP *mp, int start)
 
 
 int
-smap_put(struct SMAP *mp, struct PAIR *pair)
+smap_put(struct SMAP *mp, struct PAIR *pair, int copy_data)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT *entry;
@@ -717,7 +738,8 @@ smap_put(struct SMAP *mp, struct PAIR *pair)
 	}
 	
 	/* Copy the key and value */
-	r = smap_pair_copyin(&(entry->pair), pair);
+	r = smap_pair_copyin(&(entry->pair), pair, copy_data);
+	entry->copied_data = copy_data;
 	if (r != SMAP_OK)
 		return (r);
 
@@ -745,7 +767,7 @@ smap_delete(struct SMAP *mp, struct PAIR *pair)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT entry;
-	struct SMAP_ENT *res;
+	struct SMAP_ENT *np;
 	struct SEGMENT *sp;
 	int h;
 	int r;
@@ -763,20 +785,22 @@ smap_delete(struct SMAP *mp, struct PAIR *pair)
 	
 	SMAP_WRLOCK(&(sp->seg_lock));
 	
-	res = RB_FIND(SMAP_TREE, &(bp->root), &entry);
-	if (res == NULL) {
+	np = RB_FIND(SMAP_TREE, &(bp->root), &entry);
+	if (np == NULL) {
 		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (SMAP_NONEXISTENT_KEY);
 	}
-	RB_REMOVE(SMAP_TREE, &(bp->root), res);
+	RB_REMOVE(SMAP_TREE, &(bp->root), np);
 	
 	sp->counter--;
 	bp->counter--;
 	
-	if (IS_BIG_KEY(&(res->pair)))
-		free(res->pair.skey);
+	if (IS_BIG_KEY(&(np->pair)))
+		free(np->pair.skey);
+	if (np->copied_data && IS_BIG_VALUE(&(np->pair)))
+		free(np->pair.data);
 
-	entry_free(mp, sp, res);
+	entry_free(mp, sp, np);
 	SMAP_UNLOCK(&(sp->seg_lock), 1);
 	return (SMAP_OK);
 }
@@ -869,22 +893,21 @@ smap_get(struct SMAP *mp, struct PAIR *pair)
  * XXX Maybe we need to upgrade the rdlock to wrlock
  */
 
-void *
+int
 smap_update(struct SMAP *mp, struct PAIR *pair)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT entry;
-	struct SMAP_ENT *rc;
+	struct SMAP_ENT *np;
 	int h, r;
-	void *old_data;
 	struct SEGMENT *sp;
 
 	if (mp == NULL || pair == NULL)
-		return (NULL);
+		return (SMAP_GENERAL_ERROR);
 
 	r = smap_set_key(&(entry.pair), pair, &h);
 	if (r != SMAP_OK)
-		return (NULL);
+		return (SMAP_GENERAL_ERROR);
 
 	entry.hash = h;
 
@@ -892,17 +915,48 @@ smap_update(struct SMAP *mp, struct PAIR *pair)
 	bp = get_bucket(sp, h);
 	
 	SMAP_RDLOCK(&(sp->seg_lock));
-	rc = RB_FIND(SMAP_TREE, &(bp->root), &entry);
+	np = RB_FIND(SMAP_TREE, &(bp->root), &entry);
 	
 	/* if no entry */
-	if (rc == NULL) {
+	if (np == NULL) {
 		SMAP_UNLOCK(&(sp->seg_lock), 1);
-		return (NULL);
+		return (SMAP_NONEXISTENT_KEY);
 	} else {
-		old_data = rc->pair.data;
-		rc->pair.data = pair->data;
+		/* if we alloc memory for value, we copy it */
+		if (!np->copied_data) {
+			np->pair.data = pair->data;
+		} else if (np->copied_data) {
+			/* We must consider all sorts of situations */
+			if (IS_BIG_VALUE(&(np->pair)) && IS_BIG_VALUE(pair)) {
+				if (np->pair.data_len >= pair->data_len) {
+					memcpy(np->pair.data, pair->data, pair->data_len);
+				} else {
+					void *p;
+					int nlen = pair->data_len - np->pair.data_len;
+					p = realloc(np->pair.data, nlen);
+					if (p == NULL)
+						return (SMAP_OOM);
+					memcpy(((char *)p), np->pair.data, np->pair.data_len);
+					np->pair.data = p;
+				}
+			} else if (!IS_BIG_VALUE(&(np->pair)) && IS_BIG_VALUE(pair)) {
+				void *p;
+				p = malloc(pair->data_len);
+				if (p == NULL)
+					return (SMAP_OOM);
+				memcpy(p, pair->data, pair->data_len);
+				np->pair.data = p;
+			} else if (IS_BIG_VALUE(&(np->pair)) && !IS_BIG_VALUE(pair)) {
+				free(np->pair.data);
+				memcpy(&(np->pair.data), pair->data, pair->data_len);
+			} else {
+				memcpy(&(np->pair.data), pair->data, pair->data_len);
+			}
+		}
+		np->pair.data_len = pair->data_len;
+		
 		SMAP_UNLOCK(&(sp->seg_lock), 1);
-		return (old_data);
+		return (SMAP_OK);
 	}
 }
 

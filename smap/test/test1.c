@@ -37,7 +37,7 @@ main(void)
 //	 sizeof(struct SMAP), sizeof(struct PAIR), sizeof(struct SMAP_ENT), sizeof(struct SEGMENT), sizeof(struct BUCKET));
 
 	map = smap_init(LOOP_TIMES*2,
-		DEFAULT_LOAD_FACTOR, 128, LOOP_TIMES/100, 1);
+		DEFAULT_LOAD_FACTOR, 128, LOOP_TIMES/100, 0);
 
 	if (map == NULL)
 		printf("error map NULL \n");
@@ -55,10 +55,10 @@ main(void)
 
 	for (i = 0; i < LOOP_TIMES; i++) {
 		if (i%2)
-			SMAP_SET_NUM_PAIR(&pair, i, buf[i]);
+			SMAP_SET_NUM_PAIR(&pair, i, buf[i], 8);
 		else
-			SMAP_SET_STR_PAIR(&pair, buf[i], 7, buf[i]);
-		rc = smap_put(map, &pair);
+			SMAP_SET_STR_PAIR(&pair, buf[i], 7, buf[i], 8);
+		rc = smap_put(map, &pair, 1);
 		if (rc < 0){
 			printf("i: %d, error: %d\n", i, rc);
 		}

@@ -61,10 +61,10 @@ int main()
 		DEFAULT_LOAD_FACTOR, 128, LOOP_TIMES/100, 1);
 	for (i = 0; i < LOOP_TIMES; i++) {
 		if (i%2)
-			SMAP_SET_NUM_PAIR(&pair, i, buf[i]);
+			SMAP_SET_NUM_PAIR(&pair, i, buf[i], 8);
 		else
-			SMAP_SET_STR_PAIR(&pair, buf[i], 7, buf[i]);
-		rc = smap_insert(map, &pair);
+			SMAP_SET_STR_PAIR(&pair, buf[i], 7, buf[i], 8);
+		rc = smap_put(map, &pair, 1);
 		if (rc < 0){
 			printf("i: %d, error: %d\n", i, rc);
 		}
@@ -175,14 +175,14 @@ void *insert_map(void *argv)
 
 	for (i = LOOP_TIMES; i <  LOOP_TIMES*2; i++) {
 		if (i%2)
-			SMAP_SET_NUM_PAIR(&pair, i, buf[i]);
+			SMAP_SET_NUM_PAIR(&pair, i, buf[i], 8);
 		else
-			SMAP_SET_STR_PAIR(&pair, buf[i], 7, buf[i]);
-		rc = smap_insert(map, &pair, 1);
+			SMAP_SET_STR_PAIR(&pair, buf[i], 7, buf[i], 8);
+		rc = smap_put(map, &pair, 1);
 
 	}
 	gettimeofday (&tvafter , &tz);
-	printf("insert: %dms\n", (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000);
+	printf("put: %dms\n", (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000);
 	stop_thr(fptr);
 }
 
