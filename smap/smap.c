@@ -52,12 +52,12 @@ typedef pthread_rwlock_t rwlock_t;
 
 struct SMAP_ENT {
 	union {
-		SLIST_ENTRY(SMAP_ENT) mem_ent;
-		RB_ENTRY(SMAP_ENT)    val_ent;
+		SLIST_ENTRY(SMAP_ENT) mem_ent;	/* memory pool entry */
+		RB_ENTRY(SMAP_ENT)    val_ent;	/* the bucket red-black tree entry */
 	};
 	int ref_count;	/* reserved */
-	int hash;
-	struct PAIR pair;
+	int hash;	/* the hash code of key, both string or number */
+	struct PAIR pair;	/* the k-v pair */
 };
 
 RB_HEAD(SMAP_TREE, SMAP_ENT);
