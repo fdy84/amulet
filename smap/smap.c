@@ -11,6 +11,21 @@
  * worse than the red-black tree.
  * 2. red-black tree is ordered, which makes it possible to sort keys.
  * But the red-black tree is relatively space-consuming.
+ *
+ *
+                +------+          
+                | map_t|          
+                +------+          
++-------segments-+                  
+|         +-seg+ | +----+     +----+
+|         |lock| | |lock| ... |lock|
+|         +----+ | +----+     +----+
+|buckets         |               
+|+-+-+-+ ... +-+ | +-+...     +-+...                 
+|+-+-+-+     +-+ | +-+        +-+         
+|    rb-tree /\  |
+|     entry #  # |
++----------------+
  */
  
 
@@ -1049,9 +1064,10 @@ got_pair:
 }
 
 /*
- *  Because the pair may be deleted, 
- *  so the next pair can not be got by "pair 's next",
- *  only by the value of the current pair to find the next pair.
+ * Due to the pair may be deleted, 
+ * so "the next pair" might not be "the pair's next", 
+ * So we can only according to the current value of the pair
+ * to find near a pair.
  */
 struct PAIR *
 smap_get_next(
