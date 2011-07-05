@@ -383,9 +383,9 @@ atomic32_add_return( int i, atomic32 *v )
 }
 
 static inline int 
-atomic32_sub_return( int i, atomic64 *v )
+atomic32_sub_return( int i, atomic32 *v )
 {
-	return atomic64_add_return(-i, v);
+	return atomic32_add_return(-i, v);
 }
 
 static inline int 
