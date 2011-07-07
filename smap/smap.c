@@ -226,12 +226,11 @@ smap_pair_copyin(struct PAIR *dst, struct PAIR *src, int copy_data)
 		} else {
 			memcpy(&(dst->data), src->data, src->data_len);
 		}
-		dst->data_len = src->data_len;
 	} else {
 		dst->data = src->data;
 	}
 	dst->type = src->type;
-	
+	dst->data_len = src->data_len;
 	return (SMAP_OK);
 }
 
