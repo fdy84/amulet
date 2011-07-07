@@ -927,30 +927,34 @@ smap_update(struct SMAP *mp, struct PAIR *pair)
 			np->pair.data = pair->data;
 		} else if (np->copied_data) {
 			/* We must consider all sorts of situations */
-			if (IS_BIG_VALUE(&(np->pair)) && IS_BIG_VALUE(pair)) {
-				if (np->pair.data_len >= pair->data_len) {
-					memcpy(np->pair.data, pair->data, pair->data_len);
+			if (IS_BIG_VALUE(&(np->pair))) {
+				if (IS_BIG_VALUE(pair)) {
+					if (np->pair.data_len >= pair->data_len) {
+						memcpy(np->pair.data, pair->data, pair->data_len);
+					} else {
+						void *p;
+						int nlen = pair->data_len - np->pair.data_len;
+						p = realloc(np->pair.data, nlen);
+						if (p == NULL)
+							return (SMAP_OOM);
+						memcpy(((char *)p), np->pair.data, np->pair.data_len);
+						np->pair.data = p;
+					}
 				} else {
+					free(np->pair.data);
+					memcpy(&(np->pair.data), pair->data, pair->data_len);
+				}
+			} else {
+				if (IS_BIG_VALUE(pair)) {
 					void *p;
-					int nlen = pair->data_len - np->pair.data_len;
-					p = realloc(np->pair.data, nlen);
+					p = malloc(pair->data_len);
 					if (p == NULL)
 						return (SMAP_OOM);
-					memcpy(((char *)p), np->pair.data, np->pair.data_len);
+					memcpy(p, pair->data, pair->data_len);
 					np->pair.data = p;
+				} else {
+					memcpy(&(np->pair.data), pair->data, pair->data_len);
 				}
-			} else if (!IS_BIG_VALUE(&(np->pair)) && IS_BIG_VALUE(pair)) {
-				void *p;
-				p = malloc(pair->data_len);
-				if (p == NULL)
-					return (SMAP_OOM);
-				memcpy(p, pair->data, pair->data_len);
-				np->pair.data = p;
-			} else if (IS_BIG_VALUE(&(np->pair)) && !IS_BIG_VALUE(pair)) {
-				free(np->pair.data);
-				memcpy(&(np->pair.data), pair->data, pair->data_len);
-			} else {
-				memcpy(&(np->pair.data), pair->data, pair->data_len);
 			}
 		}
 		np->pair.data_len = pair->data_len;
