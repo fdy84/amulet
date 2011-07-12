@@ -148,7 +148,8 @@ scmp(struct SMAP_ENT *a, struct SMAP_ENT *b)
 		if (IS_BIG_KEY(&(a->pair))) {
 			c = memcmp(a->pair.skey, b->pair.skey, a->pair.key_len);
 		} else {
-			c = (uint64_t)(a->pair.skey) - (uint64_t)(b->pair.skey);
+		//	c = (uint64_t)(a->pair.skey) - (uint64_t)(b->pair.skey);
+			c = memcmp((char *)(&(a->pair.skey)), (char *)(&(b->pair.skey)), a->pair.key_len);
 		}
 		return (c ? (c < 0 ? -1 : 1) : 0);
 	} else {
@@ -209,6 +210,7 @@ smap_pair_copyin(struct PAIR *dst, struct PAIR *src, int copy_data)
 			dst->skey[src->key_len] = '\0';
 		} else {
 			memcpy((char *)(&(dst->skey)), src->skey, src->key_len);
+
 			((char *)(&(dst->skey)))[src->key_len] = '\0';
 		}
 		dst->key_len = src->key_len;
@@ -242,6 +244,8 @@ smap_pair_set_str_key(struct PAIR *dst, struct PAIR *src)
 		dst->skey = src->skey;
 	} else {
 		memcpy((char *)(&(dst->skey)), src->skey, src->key_len);
+		((char *)(&(dst->skey)))[src->key_len] = '\0';
+//dst->skey = (intptr_t)(*src->skey);
 	}
 	dst->key_len = src->key_len;
 	dst->type = KEYTYPE_STR;
@@ -268,7 +272,6 @@ smap_pair_copyout(char *dstkeybuf, struct PAIR *dst, struct PAIR *src)
 {
 	if (src->type == KEYTYPE_NUM) {
 		dst->ikey = src->ikey;
-		dst->data = src->data;
 	} else if (src->type == KEYTYPE_STR) {
 		dst->skey = dstkeybuf;
 		if (src->key_len >= sizeof(char*)) {
@@ -279,10 +282,17 @@ smap_pair_copyout(char *dstkeybuf, struct PAIR *dst, struct PAIR *src)
 		dst->skey[src->key_len] = '\0';
 
 		dst->key_len = src->key_len;
-		dst->data = src->data;
+
 	} else {
 		return (SMAP_GENERAL_ERROR);
 	}
+	
+	/* copy value */
+	if (IS_BIG_VALUE(src))
+		dst->data = src->data;
+	else
+		dst->data = &(src->data);
+	dst->data_len = src->data_len;
 	dst->type = src->type;
 	return (SMAP_OK);
 }
@@ -858,7 +868,7 @@ void *
 smap_get(struct SMAP *mp, struct PAIR *pair)
 {
 	struct BUCKET *bp;
-	struct SMAP_ENT *rc;
+	struct SMAP_ENT *np;
 	struct SEGMENT *sp;
 	struct SMAP_ENT entry;
 	int h;
@@ -877,13 +887,16 @@ smap_get(struct SMAP *mp, struct PAIR *pair)
 	bp = get_bucket(sp, h);
 	
 	SMAP_RDLOCK(&(sp->seg_lock));
-	rc = RB_FIND(SMAP_TREE, &(bp->root), &entry);
+	np = RB_FIND(SMAP_TREE, &(bp->root), &entry);
 	SMAP_UNLOCK(&(sp->seg_lock), 0);
-	if (rc == NULL) {
+	if (np == NULL) {
 		return (NULL);
 	} else {
-		pair->data = rc->pair.data;
-		return (rc->pair.data);
+		if (IS_BIG_VALUE(&(np->pair)))
+			pair->data = np->pair.data;
+		else
+			pair->data = &(np->pair.data);
+		return (np->pair.data);
 	}
 }
 
@@ -1175,10 +1188,8 @@ smap_get_next(
 		default:
 			return (NULL);
 	}
-
 	if (np && (np->pair.type & key_type)) 
 		goto got_pair;
-
 	/* 
 	 * If we did not get pair, look in the segment for each bucket,
 	 * until you get the next pair in a tree.
@@ -1209,7 +1220,6 @@ smap_get_next(
 			SMAP_UNLOCK(&(sp->seg_lock), 0);
 		}
 	}
-	
 	/* UNREACHED! */
 	return (NULL);
 	
