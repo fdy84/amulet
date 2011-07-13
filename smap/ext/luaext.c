@@ -11,7 +11,7 @@
 /* convert a table of Lua into smap */
 static struct SMAP *tabletosmap(lua_State *lua, int index){
 
-	struct SMAP *map = smap_init(DEFAULT_INITIAL_CAPACITY,
+	struct SMAP *map = smap_init(SMAP_RBTREE, DEFAULT_INITIAL_CAPACITY,
 		DEFAULT_LOAD_FACTOR, DEFAULT_CONCURRENCY_LEVEL,
 		DEFAULT_ENTRY_POOL_SIZE, 0);
 	char knbuf[NUMBUFSIZ], vnbuf[NUMBUFSIZ];
@@ -130,7 +130,7 @@ main(void)
 	struct PAIR pair;
 	int rc;
 	
-	struct SMAP *map = smap_init(DEFAULT_INITIAL_CAPACITY,
+	struct SMAP *map = smap_init(SMAP_RBTREE, DEFAULT_INITIAL_CAPACITY,
 	DEFAULT_LOAD_FACTOR, DEFAULT_CONCURRENCY_LEVEL,
 	DEFAULT_ENTRY_POOL_SIZE, 0);
 

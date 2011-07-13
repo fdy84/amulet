@@ -10,6 +10,7 @@ struct SMAP {
 	float	load_factor;
 	unsigned int	mpool_enabled;	/* mempool switch */
 	unsigned int	mt;			/* Multi-thread lock protected */
+	unsigned int	conflict_type;
 	struct SEGMENT *seg;	
 };
 
@@ -26,7 +27,7 @@ struct PAIR {
 
 typedef int (smap_callback)(struct SMAP *, struct PAIR *);
 
-struct SMAP *smap_init(int, float, int, int, int);
+struct SMAP *smap_init(int, int, float, int, int, int);
 int smap_deinit(struct SMAP *);
 int smap_put(struct SMAP *, struct PAIR *, int);
 int smap_delete(struct SMAP *, struct PAIR *);
@@ -48,6 +49,9 @@ uint64_t smap_get_bucket_counter(struct SMAP *);
 #define KEYTYPE_STR (0x1<<1)
 #define KEYTYPE_ALL (KEYTYPE_NUM|KEYTYPE_STR)
 
+#define SMAP_RBTREE (0x1<<0)
+#define SMAP_SLIST (0x1<<1)
+#define DEFAULT_CONFLICT_TYPE SMAP_RBTREE
 
 #define DEFAULT_ENTRY_POOL_SIZE -1
 #define DEFAULT_INITIAL_CAPACITY 16
