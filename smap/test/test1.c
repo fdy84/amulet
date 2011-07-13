@@ -6,7 +6,7 @@
 
 struct timeval tvafter,tvpre;
 struct timezone tz;
-#define LOOP_TIMES 1000000
+#define LOOP_TIMES 100000
 
 char buf[LOOP_TIMES][64];
 
@@ -37,7 +37,7 @@ main(void)
 //	 sizeof(struct SMAP), sizeof(struct PAIR), sizeof(struct SMAP_ENT), sizeof(struct SEGMENT), sizeof(struct BUCKET));
 
 	map = smap_init(LOOP_TIMES*2,
-		DEFAULT_LOAD_FACTOR, 128, LOOP_TIMES/100, 0);
+		DEFAULT_LOAD_FACTOR, 128, LOOP_TIMES/100, 1);
 
 	if (map == NULL)
 		printf("error map NULL \n");
