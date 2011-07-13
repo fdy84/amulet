@@ -1,3 +1,48 @@
+/*
+
+RBTREE:
+conflict_type: 1
+sizeof(smap):   40 
+sizeof(pair):   32 
+sizeof(ent):    72 
+sizeof(seg):    40 
+sizeof(bucket): 16
+insert int&str: 1000000 times: 185ms
+get: 1000000 times: 205ms
+get one: 1000000 times: 30ms
+traverse 1 time: 137ms 1000000
+traverse 1 num time: 70ms 1000000
+traverse 1 str time: 111ms 1000000
+traverse 2 time: 70ms 2000000
+traverse 2 num time: 60ms 2000000
+traverse 2 str time: 67ms 2000000
+delete: 1000000 times: 192ms
+deinit: 1000000 times: 105ms
+	
+SLIST:
+conflict_type: 2
+sizeof(smap):   40 
+sizeof(pair):   32 
+sizeof(ent):    72 
+sizeof(seg):    40 
+sizeof(bucket): 16
+insert int&str: 1000000 times: 181ms
+get: 1000000 times: 197ms
+get one: 1000000 times: 32ms
+traverse 1 time: 105ms 1000000
+traverse 1 num time: 60ms 1000000
+traverse 1 str time: 92ms 1000000
+traverse 2 time: 65ms 2000000
+traverse 2 num time: 57ms 2000000
+traverse 2 str time: 62ms 2000000
+delete: 1000000 times: 212ms
+deinit: 1000000 times: 106ms
+
+
+*/
+
+
+
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
@@ -6,7 +51,7 @@
 
 struct timeval tvafter,tvpre;
 struct timezone tz;
-#define LOOP_TIMES 100000
+#define LOOP_TIMES 1000000
 
 char buf[LOOP_TIMES][64];
 
@@ -36,8 +81,8 @@ main(void)
 //	printf("sizeof(smap):\t%d \nsizeof(pair):\t%d \nsizeof(ent):\t%d \nsizeof(seg):\t%d \nsizeof(bucket):\t%d\n",
 //	 sizeof(struct SMAP), sizeof(struct PAIR), sizeof(struct SMAP_ENT), sizeof(struct SEGMENT), sizeof(struct BUCKET));
 
-	map = smap_init(LOOP_TIMES*2,
-		DEFAULT_LOAD_FACTOR, 128, LOOP_TIMES/100, 1);
+	map = smap_init(SMAP_SLIST, LOOP_TIMES*2,
+		DEFAULT_LOAD_FACTOR, 128, LOOP_TIMES/100, 0);
 
 	if (map == NULL)
 		printf("error map NULL \n");
@@ -60,7 +105,7 @@ main(void)
 			SMAP_SET_STR_PAIR(&pair, buf[i], 7, buf[i], 8);
 		rc = smap_put(map, &pair, 1);
 		if (rc < 0){
-			printf("i: %d, error: %d\n", i, rc);
+			printf("i: %d, error1: %d\n", i, rc);
 		}
 	}
 	gettimeofday (&tvafter , &tz);

@@ -505,6 +505,7 @@ smap_init(
 	int ssize = 1;
 	int cap, c;
 
+	printf("conflict_type: %d\n", conflict_type);
 	printf("sizeof(smap):\t%lu \nsizeof(pair):\t%lu \nsizeof(ent):\t%lu \nsizeof(seg):\t%lu \nsizeof(bucket):\t%lu\n",
 	 sizeof(struct SMAP), sizeof(struct PAIR), sizeof(struct SMAP_ENT), sizeof(struct SEGMENT), sizeof(struct BUCKET));
 
@@ -818,11 +819,11 @@ LIST_INSERT(struct SMAP_LIST *head, struct SMAP_ENT *entry)
 
 	SLIST_FOREACH(np, head, list_ent) {
 		if (smap_cmp(np, entry) == 0) {
-			return (NULL);
+			return (entry);
 		}
 	}
 	SLIST_INSERT_HEAD(head, entry, list_ent);
-	return (entry);
+	return (NULL);
 }
 
 int
@@ -1392,11 +1393,12 @@ smap_get_next(
 			if (smap_cmp(np, &entry) == 0) {
 				while (np = SLIST_NEXT(np, list_ent))
 					if (np->pair.type & key_type)
-						goto got_ent;
+						break;
+				break;
 			}
 		}
 	}
-got_ent:
+
 	if (np && (np->pair.type & key_type)) 
 		goto got_pair;
 	/* 
