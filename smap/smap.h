@@ -27,7 +27,7 @@ struct PAIR {
 
 typedef int (smap_callback)(struct SMAP *, struct PAIR *);
 
-struct SMAP *smap_init(int, int, float, int, int, int);
+struct SMAP *smap_init(int, float, int, int, int);
 int smap_deinit(struct SMAP *);
 int smap_put(struct SMAP *, struct PAIR *, int);
 int smap_delete(struct SMAP *, struct PAIR *);

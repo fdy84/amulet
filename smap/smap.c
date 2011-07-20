@@ -46,6 +46,14 @@ typedef pthread_rwlock_t rwlock_t;
 #include "tree.h"
 #include "queue.h"
 
+/* Default use rbtree */
+#ifndef	SMAP_USE_SLIST
+#define SMAP_USE_RBTREE
+#define SMAP_CONFLICT_TYPE	SMAP_RBTREE
+#else
+#define SMAP_CONFLICT_TYPE	SMAP_SLIST
+#endif
+
 /*
  * need: resize, mempool, ref_count?, STORE_VALUE/STORE_POINTER, lua
  */
@@ -53,22 +61,30 @@ typedef pthread_rwlock_t rwlock_t;
 struct SMAP_ENT {
 	union {
 		SLIST_ENTRY(SMAP_ENT) mem_ent;	/* memory pool entry */
-		SLIST_ENTRY(SMAP_ENT) list_ent;	/* memory pool entry */
-		RB_ENTRY(SMAP_ENT)    tree_ent;	/* the bucket red-black tree entry */
+#ifdef	SMAP_USE_RBTREE
+		RB_ENTRY(SMAP_ENT)    node;	/* the bucket red-black tree entry */
+#else
+		SLIST_ENTRY(SMAP_ENT) node;	/* memory pool entry */
+#endif
 	};
 	uint32_t copied_data;	/* reserved */
 	int hash;	/* the hash code of key, both string or number */
 	struct PAIR pair;	/* the k-v pair */
 };
-
+#ifdef	SMAP_USE_RBTREE
 RB_HEAD(SMAP_TREE, SMAP_ENT);
+#else
 SLIST_HEAD(SMAP_LIST, SMAP_ENT);
+#endif
 
 struct BUCKET {
         intptr_t counter;	/* the number of smap_ent under the bucket */
         union {
-			struct SMAP_TREE tree_root;	/* the root of rbtree */
-			struct SMAP_LIST list_head;
+#ifdef	SMAP_USE_RBTREE
+			struct SMAP_TREE root_head;	/* the root of rbtree */
+#else
+			struct SMAP_LIST root_head;
+#endif
     	};
 };
 SLIST_HEAD(ENTRY_POOL_HEAD, SMAP_ENT);
@@ -187,6 +203,10 @@ smap_cmp(struct SMAP_ENT *a, struct SMAP_ENT *b)
 	}
 }
 
+#ifdef SMAP_USE_RBTREE
+RB_PROTOTYPE_STATIC(SMAP_TREE, SMAP_ENT, node, smap_cmp);
+RB_GENERATE_STATIC(SMAP_TREE, SMAP_ENT, node, smap_cmp);
+#endif
 
 static inline int
 check_str_pair(struct PAIR *pair)
@@ -322,9 +342,6 @@ get_bucket(struct SEGMENT *sp, int hash)
 	int idx = hash & (sp->bucket_num - 1);
 	return &(sp->bp[idx]);
 }
-
-RB_PROTOTYPE_STATIC(SMAP_TREE, SMAP_ENT, tree_ent, smap_cmp);
-RB_GENERATE_STATIC(SMAP_TREE, SMAP_ENT, tree_ent, smap_cmp);
 
 static inline int
 lock_init(rwlock_t *lock, int mt)
@@ -490,7 +507,6 @@ free_res(struct SMAP *mp, int i)
  */
 struct SMAP *
 smap_init(
-	int conflict_type,
 	int capacity,
 	float load_factor,
 	int level,
@@ -505,7 +521,7 @@ smap_init(
 	int ssize = 1;
 	int cap, c;
 
-	printf("conflict_type: %d\n", conflict_type);
+	printf("conflict_type: %d\n", SMAP_CONFLICT_TYPE);
 	printf("sizeof(smap):\t%lu \nsizeof(pair):\t%lu \nsizeof(ent):\t%lu \nsizeof(seg):\t%lu \nsizeof(bucket):\t%lu\n",
 	 sizeof(struct SMAP), sizeof(struct PAIR), sizeof(struct SMAP_ENT), sizeof(struct SEGMENT), sizeof(struct BUCKET));
 
@@ -571,19 +587,13 @@ smap_init(
 
 		for (j = 0; j < cap; j++) {
 			bp[j].counter = 0;
-			switch(conflict_type) {
-				case SMAP_RBTREE:
-					RB_INIT(&(bp[j].tree_root));
-					break;
-				case SMAP_SLIST:
-					SLIST_INIT(&(bp[j].list_head));
-					break;
-				default:
-					free_res(mp, i);
-					return (NULL);
-			}
+#ifdef	SMAP_USE_RBTREE
+			RB_INIT(&(bp[j].root_head));
+#else
+			SLIST_INIT(&(bp[j].root_head));
+#endif
 		}
-		mp->conflict_type = conflict_type;
+		mp->conflict_type = SMAP_CONFLICT_TYPE;
 		mp->seg[i].bucket_num = cap;	
 		mp->seg[i].bp = bp;
 		mp->seg[i].counter = 0;
@@ -604,9 +614,9 @@ smap_init(
 	return (mp);
 }
 
-
+#ifdef	SMAP_USE_RBTREE
 static inline void
-tree_deinit(struct SMAP_TREE *root)
+_deinit(struct SMAP_TREE *root)
 {
 	struct SMAP_ENT *np;
 	struct SMAP_ENT *tnp;
@@ -622,16 +632,17 @@ tree_deinit(struct SMAP_TREE *root)
 		free(np);
 	}
 }
-	
+
+#else
 static inline void
-list_deinit(struct SMAP_LIST *head)
+_deinit(struct SMAP_LIST *head)
 {
 	struct SMAP_ENT *np;
 	struct SMAP_ENT *tnp;
 	
 	while (!SLIST_EMPTY(head)) {           /* List Deletion. */
 		np = SLIST_FIRST(head);
-		SLIST_REMOVE_HEAD(head, list_ent);
+		SLIST_REMOVE_HEAD(head, node);
 		if (IS_BIG_KEY(&(np->pair)))
 			free(np->pair.skey);
 		if (np->copied_data && IS_BIG_VALUE(&(np->pair)))
@@ -641,6 +652,7 @@ list_deinit(struct SMAP_LIST *head)
 		free(np);
 	}
 }
+#endif
 
 /* XXX NOT Thread-safe! be sure there is not any other operation */
 int
@@ -660,11 +672,7 @@ smap_deinit(struct SMAP *mp)
 		SMAP_WRLOCK(&(sp->seg_lock));
 		for (j = 0; j < sp->bucket_num; j++) {
 			bp = &(sp->bp[j]);
-			if (mp->conflict_type == SMAP_RBTREE) {
-				tree_deinit(&(bp->tree_root));
-			} else {
-				list_deinit(&(bp->list_head));
-			}
+			_deinit(&(bp->root_head));
 		}
 		free(sp->bp);
 		entry_deinit(sp);
@@ -676,9 +684,9 @@ smap_deinit(struct SMAP *mp)
 	return (0);
 }
 
-
+#ifdef	SMAP_USE_RBTREE
 static inline void
-tree_clear(
+_clear(
 	struct SMAP_TREE *root,
 	struct ENTRY_POOL_HEAD *new_pool,
 	int *pool_size,
@@ -706,9 +714,9 @@ tree_clear(
 		}
 	}
 }
-	
+#else
 static inline void
-list_clear(
+_clear(
 	struct SMAP_LIST *head,
 	struct ENTRY_POOL_HEAD *new_pool,
 	int *pool_size,
@@ -719,7 +727,7 @@ list_clear(
 	
 	while (!SLIST_EMPTY(head)) {           /* List Deletion. */
 		np = SLIST_FIRST(head);
-		SLIST_REMOVE_HEAD(head, list_ent);
+		SLIST_REMOVE_HEAD(head, node);
 		if (IS_BIG_KEY(&(np->pair)))
 			free(np->pair.skey);
 		if (np->copied_data && IS_BIG_VALUE(&(np->pair)))
@@ -737,6 +745,7 @@ list_clear(
 		}
 	}
 }
+#endif
 
 /*
  * clear a map, it would not always locked, just new the bucket and mpool.
@@ -763,10 +772,11 @@ smap_clear(struct SMAP *mp, int start)
 			(struct BUCKET *)malloc(sp->bucket_num * sizeof(struct BUCKET));
 		for (j = 0; j < sp->bucket_num; j++) {
 			new_bp[j].counter = 0;
-			if (mp->conflict_type == SMAP_RBTREE)
-				RB_INIT(&(new_bp[j].tree_root));
-			else
-				SLIST_INIT(&(new_bp[j].list_head));
+#ifdef	SMAP_USE_RBTREE
+			RB_INIT(&(new_bp[j].root_head));
+#else
+			SLIST_INIT(&(new_bp[j].root_head));
+#endif
 		}
 
 		/* alloc a new bucket array and free old one. */
@@ -776,10 +786,7 @@ smap_clear(struct SMAP *mp, int start)
 		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		for (j = 0; j < sp->bucket_num; j++) {
 			bp = &(old_bp[j]);
-			if (mp->conflict_type == SMAP_RBTREE)
-				tree_clear(&(bp->tree_root), &new_pool, &new_pool_size, sp->bucket_num);
-			else
-				list_clear(&(bp->list_head), &new_pool, &new_pool_size, sp->bucket_num);
+			_clear(&(bp->root_head), &new_pool, &new_pool_size, sp->bucket_num);
 		}
 		free(old_bp);
 		
@@ -811,20 +818,21 @@ smap_clear(struct SMAP *mp, int start)
 		}
 	}
 }
-
+#ifdef	SMAP_USE_SLIST
 static inline void *
 LIST_INSERT(struct SMAP_LIST *head, struct SMAP_ENT *entry)
 {
 	struct SMAP_ENT *np;
 
-	SLIST_FOREACH(np, head, list_ent) {
+	SLIST_FOREACH(np, head, node) {
 		if (smap_cmp(np, entry) == 0) {
 			return (entry);
 		}
 	}
-	SLIST_INSERT_HEAD(head, entry, list_ent);
+	SLIST_INSERT_HEAD(head, entry, node);
 	return (NULL);
 }
+#endif
 
 int
 smap_put(struct SMAP *mp, struct PAIR *pair, int copy_data)
@@ -873,11 +881,11 @@ smap_put(struct SMAP *mp, struct PAIR *pair, int copy_data)
 		return (r);
 
 	entry->hash = h;
-	if (mp->conflict_type == SMAP_RBTREE)
-		rc = RB_INSERT(SMAP_TREE, &(bp->tree_root), entry);
-	else
-		rc = LIST_INSERT(&(bp->list_head), entry);
-
+#ifdef	SMAP_USE_RBTREE
+		rc = RB_INSERT(SMAP_TREE, &(bp->root_head), entry);
+#else
+		rc = LIST_INSERT(&(bp->root_head), entry);
+#endif
 	if (rc == NULL) {
 		sp->counter++;
 		bp->counter++;
@@ -916,25 +924,25 @@ smap_delete(struct SMAP *mp, struct PAIR *pair)
 	
 	SMAP_WRLOCK(&(sp->seg_lock));
 	
-	if (mp->conflict_type == SMAP_RBTREE) {
-		np = RB_FIND(SMAP_TREE, &(bp->tree_root), &entry);
-		if (np == NULL) {
-			SMAP_UNLOCK(&(sp->seg_lock), 1);
-			return (SMAP_NONEXISTENT_KEY);
-		}
-		RB_REMOVE(SMAP_TREE, &(bp->tree_root), np);
-	} else {
-		SLIST_FOREACH_SAFE(np, &(bp->list_head), list_ent, tnp) {
-			if (smap_cmp(np, &entry) == 0) {
-				break;
-			}
-		}
-		if (np == NULL) {
-			SMAP_UNLOCK(&(sp->seg_lock), 1);
-			return (SMAP_NONEXISTENT_KEY);
-		}
-		SLIST_REMOVE(&(bp->list_head), np, SMAP_ENT, list_ent);
+#ifdef	SMAP_USE_RBTREE
+	np = RB_FIND(SMAP_TREE, &(bp->root_head), &entry);
+	if (np == NULL) {
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
+		return (SMAP_NONEXISTENT_KEY);
 	}
+	RB_REMOVE(SMAP_TREE, &(bp->root_head), np);
+#else
+	SLIST_FOREACH_SAFE(np, &(bp->root_head), node, tnp) {
+		if (smap_cmp(np, &entry) == 0) {
+			break;
+		}
+	}
+	if (np == NULL) {
+		SMAP_UNLOCK(&(sp->seg_lock), 1);
+		return (SMAP_NONEXISTENT_KEY);
+	}
+	SLIST_REMOVE(&(bp->root_head), np, SMAP_ENT, node);
+#endif
 		
 	sp->counter--;
 	bp->counter--;
@@ -1023,15 +1031,15 @@ smap_get(struct SMAP *mp, struct PAIR *pair)
 	
 	SMAP_RDLOCK(&(sp->seg_lock));
 
-	if (mp->conflict_type == SMAP_RBTREE) {
-		np = RB_FIND(SMAP_TREE, &(bp->tree_root), &entry);
-	} else {
-		SLIST_FOREACH(np, &(bp->list_head), list_ent) {
-			if (smap_cmp(np, &entry) == 0) {
-				break;
-			}
+#ifdef	SMAP_USE_RBTREE
+	np = RB_FIND(SMAP_TREE, &(bp->root_head), &entry);
+#else
+	SLIST_FOREACH(np, &(bp->root_head), node) {
+		if (smap_cmp(np, &entry) == 0) {
+			break;
 		}
-	}	
+	}
+#endif
 	
 	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	if (np == NULL) {
@@ -1073,15 +1081,15 @@ smap_update(struct SMAP *mp, struct PAIR *pair)
 	
 	SMAP_RDLOCK(&(sp->seg_lock));
 
-	if (mp->conflict_type == SMAP_RBTREE) {
-		np = RB_FIND(SMAP_TREE, &(bp->tree_root), &entry);
-	} else {
-		SLIST_FOREACH_SAFE(np, &(bp->list_head), list_ent, tnp) {
-			if (smap_cmp(np, &entry) == 0) {
-				break;
-			}
+#ifdef	SMAP_USE_RBTREE
+	np = RB_FIND(SMAP_TREE, &(bp->root_head), &entry);
+#else
+	SLIST_FOREACH_SAFE(np, &(bp->root_head), node, tnp) {
+		if (smap_cmp(np, &entry) == 0) {
+			break;
 		}
-	}	
+	}
+#endif
 	/* if no entry */
 	if (np == NULL) {
 		SMAP_UNLOCK(&(sp->seg_lock), 1);
@@ -1128,7 +1136,7 @@ smap_update(struct SMAP *mp, struct PAIR *pair)
 		return (SMAP_OK);
 	}
 }
-/*
+
 inline static int
 traverse_all(struct SMAP *mp, void *rh, smap_callback *routine)
 {
@@ -1138,29 +1146,29 @@ traverse_all(struct SMAP *mp, void *rh, smap_callback *routine)
 	int rc;
 	char keybuf[SMAP_MAX_KEY_LEN+1];
 	
-	if (mp->conflict_type == SMAP_RBTREE) {
-		struct SMAP_TREE *root = (struct SMAP_TREE *)rh;
-		RB_FOREACH_SAFE(np, SMAP_TREE, root, tnp) {
-			smap_pair_copyout(keybuf, &pair, &(np->pair));
-			rc = routine(mp, &pair);
-			if (rc == SMAP_BREAK)
-				return (SMAP_BREAK);
-		}
-	} else {
-		struct SMAP_LIST *head = (struct SMAP_LIST *)rh;
-		SLIST_FOREACH_SAFE(np, head, list_ent, tnp) {
-			smap_pair_copyout(keybuf, &pair, &(np->pair));
-			rc = routine(mp, &pair);
-			if (rc == SMAP_BREAK)
-				return (SMAP_BREAK);
-		}
+#ifdef	SMAP_USE_RBTREE
+	struct SMAP_TREE *root = (struct SMAP_TREE *)rh;
+	RB_FOREACH_SAFE(np, SMAP_TREE, root, tnp) {
+		smap_pair_copyout(keybuf, &pair, &(np->pair));
+		rc = routine(mp, &pair);
+		if (rc == SMAP_BREAK)
+			return (SMAP_BREAK);
 	}
+#else
+	struct SMAP_LIST *head = (struct SMAP_LIST *)rh;
+	SLIST_FOREACH_SAFE(np, head, node, tnp) {
+		smap_pair_copyout(keybuf, &pair, &(np->pair));
+		rc = routine(mp, &pair);
+		if (rc == SMAP_BREAK)
+			return (SMAP_BREAK);
+	}
+#endif
 	return (SMAP_OK);
 }
-*/
+
 
 inline static int
-traverse_common(struct SMAP *mp, void *rh, int key_type, smap_callback *routine)
+traverse_num(struct SMAP *mp, void *rh, smap_callback *routine)
 {
 	struct SMAP_ENT *np;
 	struct SMAP_ENT *tnp;
@@ -1168,29 +1176,29 @@ traverse_common(struct SMAP *mp, void *rh, int key_type, smap_callback *routine)
 	int rc;
 	char keybuf[SMAP_MAX_KEY_LEN+1];
 	
-	if (mp->conflict_type == SMAP_RBTREE) {
-		struct SMAP_TREE *root = (struct SMAP_TREE *)rh;
-		RB_FOREACH_SAFE(np, SMAP_TREE, root, tnp) {
-			if (np->pair.type & key_type) {
-				smap_pair_copyout(keybuf, &pair, &(np->pair));
-				rc = routine(mp, &pair);
-				if (rc == SMAP_BREAK)
-					return (SMAP_BREAK);
-			} else {
-				return (SMAP_OK);
-			}
-		}
-	} else {
-		struct SMAP_LIST *head = (struct SMAP_LIST *)rh;
-		SLIST_FOREACH_SAFE(np, head, list_ent, tnp) {
-			if (np->pair.type & key_type) {
-				smap_pair_copyout(keybuf, &pair, &(np->pair));
-				rc = routine(mp, &pair);
-				if (rc == SMAP_BREAK)
-					return (SMAP_BREAK);
-			}
+#ifdef	SMAP_USE_RBTREE
+	struct SMAP_TREE *root = (struct SMAP_TREE *)rh;
+	RB_FOREACH_SAFE(np, SMAP_TREE, root, tnp) {
+		if (np->pair.type & KEYTYPE_NUM) {
+			smap_pair_copyout(keybuf, &pair, &(np->pair));
+			rc = routine(mp, &pair);
+			if (rc == SMAP_BREAK)
+				return (SMAP_BREAK);
+		} else {
+			return (SMAP_OK);
 		}
 	}
+#else
+	struct SMAP_LIST *head = (struct SMAP_LIST *)rh;
+	SLIST_FOREACH_SAFE(np, head, node, tnp) {
+		if (np->pair.type & KEYTYPE_NUM) {
+			smap_pair_copyout(keybuf, &pair, &(np->pair));
+			rc = routine(mp, &pair);
+			if (rc == SMAP_BREAK)
+				return (SMAP_BREAK);
+		}
+	}
+#endif
 	return (SMAP_OK);
 }
 
@@ -1203,29 +1211,29 @@ traverse_str(struct SMAP *mp, void *rh, smap_callback *routine)
 	int rc;
 	char keybuf[SMAP_MAX_KEY_LEN+1];
 
-	if (mp->conflict_type == SMAP_RBTREE) {
-		struct SMAP_TREE *root = (struct SMAP_TREE *)rh;
-		RB_FOREACH_REVERSE_SAFE(np, SMAP_TREE, root, tnp) {
-			if (np->pair.type == KEYTYPE_STR) {
-				smap_pair_copyout(keybuf, &pair, &(np->pair));
-				rc = routine(mp, &pair);
-				if (rc == SMAP_BREAK)
-					return (SMAP_BREAK);
-			} else {
-				return (SMAP_OK);
-			}
-		}
-	} else {
-		struct SMAP_LIST *head = (struct SMAP_LIST *)rh;
-		SLIST_FOREACH_SAFE(np, head, list_ent, tnp) {
-			if (np->pair.type == KEYTYPE_STR) {
-				smap_pair_copyout(keybuf, &pair, &(np->pair));
-				rc = routine(mp, &pair);
-				if (rc == SMAP_BREAK)
-					return (SMAP_BREAK);
-			}
+#ifdef	SMAP_USE_RBTREE
+	struct SMAP_TREE *root = (struct SMAP_TREE *)rh;
+	RB_FOREACH_REVERSE_SAFE(np, SMAP_TREE, root, tnp) {
+		if (np->pair.type == KEYTYPE_STR) {
+			smap_pair_copyout(keybuf, &pair, &(np->pair));
+			rc = routine(mp, &pair);
+			if (rc == SMAP_BREAK)
+				return (SMAP_BREAK);
+		} else {
+			return (SMAP_OK);
 		}
 	}
+#else
+	struct SMAP_LIST *head = (struct SMAP_LIST *)rh;
+	SLIST_FOREACH_SAFE(np, head, node, tnp) {
+		if (np->pair.type == KEYTYPE_STR) {
+			smap_pair_copyout(keybuf, &pair, &(np->pair));
+			rc = routine(mp, &pair);
+			if (rc == SMAP_BREAK)
+				return (SMAP_BREAK);
+		}
+	}
+#endif
 	return (SMAP_OK);
 }
 
@@ -1255,12 +1263,13 @@ smap_traverse_unsafe(
 			bp = &(sp->bp[j]);
 			switch (key_type) {
 				case KEYTYPE_ALL:
+					rc = traverse_all(mp, &(bp->root_head), routine);
+					break;
 				case KEYTYPE_NUM:
-					rc = 
-					traverse_common(mp, &(bp->tree_root), key_type, routine);
+					rc = traverse_num(mp, &(bp->root_head), routine);
 					break;
 				case KEYTYPE_STR:
-					rc = traverse_str(mp, &(bp->tree_root), routine);
+					rc = traverse_str(mp, &(bp->root_head), routine);
 					break;
 				default:
 					return (SMAP_GENERAL_ERROR);
@@ -1272,32 +1281,37 @@ smap_traverse_unsafe(
 	return (SMAP_OK);
 }
 
+#ifdef	SMAP_USE_RBTREE
+
 #define GET_TYPED_PAIR(key_type, rh) \
-	if (mp->conflict_type == SMAP_RBTREE) {	\
-		switch (key_type) { \
-			case KEYTYPE_ALL: \
-			case KEYTYPE_NUM: \
-				np = RB_MIN(SMAP_TREE, (struct SMAP_TREE *)(rh)); \
-				break; \
-			case KEYTYPE_STR: \
-				np = RB_MAX(SMAP_TREE, (struct SMAP_TREE *)(rh)); \
-				break; \
-			default: \
-				return (NULL); \
-		} \
+	switch (key_type) { \
+		case KEYTYPE_ALL: \
+		case KEYTYPE_NUM: \
+			np = RB_MIN(SMAP_TREE, (struct SMAP_TREE *)(rh)); \
+			break; \
+		case KEYTYPE_STR: \
+			np = RB_MAX(SMAP_TREE, (struct SMAP_TREE *)(rh)); \
+			break; \
+		default: \
+			return (NULL); \
+	} \
+	if (np && (np->pair.type & key_type)) { \
+		goto got_pair; \
+	} else { \
+		continue; \
+	}
+
+#else
+		
+#define GET_TYPED_PAIR(key_type, rh) \
+	SLIST_FOREACH(np, (struct SMAP_LIST *)(rh), node) {	\
 		if (np && (np->pair.type & key_type)) { \
 			goto got_pair; \
-		} else { \
-			continue; \
 		}	\
-	} else {	\
-		SLIST_FOREACH(np, (struct SMAP_LIST *)(rh), list_ent) {	\
-			if (np && (np->pair.type & key_type)) { \
-				goto got_pair; \
-			}	\
-		}	\
-		continue;	\
 	}	\
+	continue;
+
+#endif
 
 struct PAIR *
 smap_get_first(
@@ -1321,7 +1335,7 @@ smap_get_first(
 		SMAP_RDLOCK(&(sp->seg_lock));
 		for (j = 0; j < sp->bucket_num; j++) {
 			bp = &(sp->bp[j]);
-			GET_TYPED_PAIR(key_type, &(bp->tree_root));
+			GET_TYPED_PAIR(key_type, &(bp->root_head));
 		}
 		SMAP_UNLOCK(&(sp->seg_lock), 0);
 	}
@@ -1368,36 +1382,36 @@ smap_get_next(
 	SMAP_RDLOCK(&(sp->seg_lock));
 
 	/* Get the next pair by the value of current pair */
-	if (mp->conflict_type == SMAP_RBTREE) {
-		switch (key_type) {
-			case KEYTYPE_ALL:
-			case KEYTYPE_NUM:
-				np = RB_NFIND(SMAP_TREE, &(bp->tree_root), &entry);
-				if (np && smap_cmp(np, &entry) == 0) {
-					/* We got the itself, get the next one */
-					np = RB_NEXT(SMAP_TREE, &(bp->tree_root), np);
-				}
-				break;
-			case KEYTYPE_STR:
-				np = RB_PFIND(SMAP_TREE, &(bp->tree_root), &entry);
-				if (np && smap_cmp(np, &entry) == 0) {
-					/* We got the itself, get the prev one */
-					np = RB_PREV(SMAP_TREE, &(bp->tree_root), np);
-				}
-				break;
-			default:
-				return (NULL);
-		}
-	} else {
-		SLIST_FOREACH(np, &(bp->list_head), list_ent) {
-			if (smap_cmp(np, &entry) == 0) {
-				while (np = SLIST_NEXT(np, list_ent))
-					if (np->pair.type & key_type)
-						break;
-				break;
+#ifdef	SMAP_USE_RBTREE
+	switch (key_type) {
+		case KEYTYPE_ALL:
+		case KEYTYPE_NUM:
+			np = RB_NFIND(SMAP_TREE, &(bp->root_head), &entry);
+			if (np && smap_cmp(np, &entry) == 0) {
+				/* We got the itself, get the next one */
+				np = RB_NEXT(SMAP_TREE, &(bp->root_head), np);
 			}
+			break;
+		case KEYTYPE_STR:
+			np = RB_PFIND(SMAP_TREE, &(bp->root_head), &entry);
+			if (np && smap_cmp(np, &entry) == 0) {
+				/* We got the itself, get the prev one */
+				np = RB_PREV(SMAP_TREE, &(bp->root_head), np);
+			}
+			break;
+		default:
+			return (NULL);
+	}
+#else
+	SLIST_FOREACH(np, &(bp->root_head), node) {
+		if (smap_cmp(np, &entry) == 0) {
+			while (np = SLIST_NEXT(np, node))
+				if (np->pair.type & key_type)
+					break;
+			break;
 		}
 	}
+#endif
 
 	if (np && (np->pair.type & key_type)) 
 		goto got_pair;
@@ -1406,7 +1420,7 @@ smap_get_next(
 	 * until you get the next pair in a tree.
 	 */
 	for (bp++; (bp - sp->bp) < sp->bucket_num; bp++) {
-		GET_TYPED_PAIR(key_type, &(bp->tree_root));
+		GET_TYPED_PAIR(key_type, &(bp->root_head));
 	}
 	/*
 	 * Find all the bucket from the previous segment?
@@ -1426,7 +1440,7 @@ smap_get_next(
 			SMAP_RDLOCK(&(sp->seg_lock));
 			for (i = 0; i < sp->bucket_num; i++) {
 				bp = &(sp->bp[i]);
-				GET_TYPED_PAIR(key_type, &(bp->tree_root));
+				GET_TYPED_PAIR(key_type, &(bp->root_head));
 			}
 			SMAP_UNLOCK(&(sp->seg_lock), 0);
 		}

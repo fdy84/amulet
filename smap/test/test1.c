@@ -81,7 +81,7 @@ main(void)
 //	printf("sizeof(smap):\t%d \nsizeof(pair):\t%d \nsizeof(ent):\t%d \nsizeof(seg):\t%d \nsizeof(bucket):\t%d\n",
 //	 sizeof(struct SMAP), sizeof(struct PAIR), sizeof(struct SMAP_ENT), sizeof(struct SEGMENT), sizeof(struct BUCKET));
 
-	map = smap_init(SMAP_SLIST, LOOP_TIMES*2,
+	map = smap_init(LOOP_TIMES*2,
 		DEFAULT_LOAD_FACTOR, 128, LOOP_TIMES/100, 0);
 
 	if (map == NULL)
