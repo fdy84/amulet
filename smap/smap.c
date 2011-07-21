@@ -280,15 +280,18 @@ smap_pair_set_str_key(struct PAIR *dst, struct PAIR *src)
 static inline int
 smap_set_key(struct PAIR *dst, struct PAIR *src, int *hash)
 {
+	int h;
+
 	if (src->type == KEYTYPE_NUM) {
 		SMAP_SET_NUM_KEY(dst, src->ikey);
-		*hash = nhash((int)src->ikey);
+		h = nhash((int)src->ikey);
 	} else if (src->type == KEYTYPE_STR) {
 		smap_pair_set_str_key(dst, src);
-		*hash = shash((char *)src->skey, src->key_len);
+		h = shash((char *)src->skey, src->key_len);
 	} else {
 		return (SMAP_GENERAL_ERROR); 
 	}
+	*hash = h;
 	return (SMAP_OK);
 }
 
@@ -918,9 +921,9 @@ smap_delete(struct SMAP *mp, struct PAIR *pair)
 	if (r != SMAP_OK)
 		return (SMAP_GENERAL_ERROR); 
 
-	entry.hash = h;
 	sp = get_segment(mp, h);
 	bp = get_bucket(sp, h);
+	entry.hash = h;
 	
 	SMAP_WRLOCK(&(sp->seg_lock));
 	
@@ -932,16 +935,27 @@ smap_delete(struct SMAP *mp, struct PAIR *pair)
 	}
 	RB_REMOVE(SMAP_TREE, &(bp->root_head), np);
 #else
-	SLIST_FOREACH_SAFE(np, &(bp->root_head), node, tnp) {
+	if (!SLIST_EMPTY(&(bp->root_head))) {
+		np = SLIST_FIRST(&(bp->root_head));
 		if (smap_cmp(np, &entry) == 0) {
-			break;
+			SLIST_REMOVE_HEAD(&(bp->root_head), node);
+		} else {
+			SLIST_FOREACH_SAFE(np, &(bp->root_head), node, tnp) {
+				if (tnp && smap_cmp(tnp, &entry) == 0) {
+					SLIST_NEXT(np, node) = SLIST_NEXT(tnp, node);
+					np = tnp;
+					break;
+				}
+			}
 		}
+	} else {
+		np = NULL;
 	}
 	if (np == NULL) {
 		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (SMAP_NONEXISTENT_KEY);
 	}
-	SLIST_REMOVE(&(bp->root_head), np, SMAP_ENT, node);
+
 #endif
 		
 	sp->counter--;
@@ -1024,10 +1038,9 @@ smap_get(struct SMAP *mp, struct PAIR *pair)
 	if (r != SMAP_OK)
 		return (NULL);
 
-	entry.hash = h;
-
 	sp = get_segment(mp, h);
 	bp = get_bucket(sp, h);
+	entry.hash = h;
 	
 	SMAP_RDLOCK(&(sp->seg_lock));
 
@@ -1074,10 +1087,9 @@ smap_update(struct SMAP *mp, struct PAIR *pair)
 	if (r != SMAP_OK)
 		return (SMAP_GENERAL_ERROR);
 
-	entry.hash = h;
-
 	sp = get_segment(mp, h);
 	bp = get_bucket(sp, h);
+	entry.hash = h;
 	
 	SMAP_RDLOCK(&(sp->seg_lock));
 
@@ -1374,10 +1386,9 @@ smap_get_next(
 	if (r != SMAP_OK)
 		return (NULL);
 
-	entry.hash = h;
-
 	sp = get_segment(mp, h);
 	bp = get_bucket(sp, h);
+	entry.hash = h;
 	
 	SMAP_RDLOCK(&(sp->seg_lock));
 
