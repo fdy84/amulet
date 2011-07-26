@@ -1156,21 +1156,20 @@ traverse_all(struct SMAP *mp, void *rh, smap_callback *routine)
 	struct SMAP_ENT *tnp;
 	struct PAIR pair;
 	int rc;
-	char keybuf[SMAP_MAX_KEY_LEN+1];
 	
 #ifdef	SMAP_USE_RBTREE
 	struct SMAP_TREE *root = (struct SMAP_TREE *)rh;
 	RB_FOREACH_SAFE(np, SMAP_TREE, root, tnp) {
-		smap_pair_copyout(keybuf, &pair, &(np->pair));
-		rc = routine(mp, &pair);
+//		smap_pair_copyout(keybuf, &pair, &(np->pair));
+		rc = routine(mp, &(np->pair));
 		if (rc == SMAP_BREAK)
 			return (SMAP_BREAK);
 	}
 #else
 	struct SMAP_LIST *head = (struct SMAP_LIST *)rh;
 	SLIST_FOREACH_SAFE(np, head, node, tnp) {
-		smap_pair_copyout(keybuf, &pair, &(np->pair));
-		rc = routine(mp, &pair);
+//		smap_pair_copyout(keybuf, &pair, &(np->pair));
+		rc = routine(mp, &(np->pair));
 		if (rc == SMAP_BREAK)
 			return (SMAP_BREAK);
 	}
@@ -1186,14 +1185,13 @@ traverse_num(struct SMAP *mp, void *rh, smap_callback *routine)
 	struct SMAP_ENT *tnp;
 	struct PAIR pair;
 	int rc;
-	char keybuf[SMAP_MAX_KEY_LEN+1];
 	
 #ifdef	SMAP_USE_RBTREE
 	struct SMAP_TREE *root = (struct SMAP_TREE *)rh;
 	RB_FOREACH_SAFE(np, SMAP_TREE, root, tnp) {
 		if (np->pair.type & KEYTYPE_NUM) {
-			smap_pair_copyout(keybuf, &pair, &(np->pair));
-			rc = routine(mp, &pair);
+//			smap_pair_copyout(keybuf, &pair, &(np->pair));
+			rc = routine(mp, &(np->pair));
 			if (rc == SMAP_BREAK)
 				return (SMAP_BREAK);
 		} else {
@@ -1204,8 +1202,8 @@ traverse_num(struct SMAP *mp, void *rh, smap_callback *routine)
 	struct SMAP_LIST *head = (struct SMAP_LIST *)rh;
 	SLIST_FOREACH_SAFE(np, head, node, tnp) {
 		if (np->pair.type & KEYTYPE_NUM) {
-			smap_pair_copyout(keybuf, &pair, &(np->pair));
-			rc = routine(mp, &pair);
+//			smap_pair_copyout(keybuf, &pair, &(np->pair));
+			rc = routine(mp, &(np->pair));
 			if (rc == SMAP_BREAK)
 				return (SMAP_BREAK);
 		}
@@ -1227,8 +1225,8 @@ traverse_str(struct SMAP *mp, void *rh, smap_callback *routine)
 	struct SMAP_TREE *root = (struct SMAP_TREE *)rh;
 	RB_FOREACH_REVERSE_SAFE(np, SMAP_TREE, root, tnp) {
 		if (np->pair.type == KEYTYPE_STR) {
-			smap_pair_copyout(keybuf, &pair, &(np->pair));
-			rc = routine(mp, &pair);
+//			smap_pair_copyout(keybuf, &pair, &(np->pair));
+			rc = routine(mp, &(np->pair));
 			if (rc == SMAP_BREAK)
 				return (SMAP_BREAK);
 		} else {
@@ -1239,8 +1237,8 @@ traverse_str(struct SMAP *mp, void *rh, smap_callback *routine)
 	struct SMAP_LIST *head = (struct SMAP_LIST *)rh;
 	SLIST_FOREACH_SAFE(np, head, node, tnp) {
 		if (np->pair.type == KEYTYPE_STR) {
-			smap_pair_copyout(keybuf, &pair, &(np->pair));
-			rc = routine(mp, &pair);
+//			smap_pair_copyout(keybuf, &pair, &(np->pair));
+			rc = routine(mp, &(np->pair));
 			if (rc == SMAP_BREAK)
 				return (SMAP_BREAK);
 		}
