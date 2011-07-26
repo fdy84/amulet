@@ -15,8 +15,8 @@ struct SMAP {
 };
 
 struct PAIR {
-	uint32_t type; /* number or string, if the type is int, more fast*/
-	uint32_t key_len; /* strlen, number key_len == 0, if the type is int, more fast*/
+	uint16_t type; /* number or string, if the type is int, more fast*/
+	uint16_t key_len; /* strlen, number key_len == 0, if the type is int, more fast*/
 	uint32_t data_len;
 	union {
 		uint64_t	ikey;

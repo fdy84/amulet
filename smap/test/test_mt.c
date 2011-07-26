@@ -59,6 +59,8 @@ int main()
 	}
 	map = smap_init(LOOP_TIMES*2,
 		DEFAULT_LOAD_FACTOR, 128, LOOP_TIMES/100, 1);
+	if (map == NULL)
+		printf("smap_init failed! \n");
 	for (i = 0; i < LOOP_TIMES; i++) {
 		if (i%2)
 			SMAP_SET_NUM_PAIR(&pair, i, buf[i], 8);
@@ -66,7 +68,8 @@ int main()
 			SMAP_SET_STR_PAIR(&pair, buf[i], 7, buf[i], 8);
 		rc = smap_put(map, &pair, 1);
 		if (rc < 0){
-			printf("i: %d, error: %d\n", i, rc);
+			printf("put: i: %d, error: %d\n", i, rc);
+			exit(1);
 		}
 	}
 	
@@ -188,7 +191,7 @@ void *insert_map(void *argv)
 
 void *del_map(void *argv)
 {
-	struct timeval tvafter,tvpre;
+	struct timeval tvafter1,tvpre1;
 	struct timezone tz;
 	struct SMAP* map = ((struct thread_args *)argv)->map;
 	struct file *fptr = ((struct thread_args *)argv)->fptr;
@@ -197,7 +200,7 @@ void *del_map(void *argv)
 	int rc;
 	struct PAIR pair;
 
-	gettimeofday (&tvpre , &tz);
+	gettimeofday (&tvpre1 , &tz);
 
 	for (i = 0; i < LOOP_TIMES; i++) {
 		if (i%2)
@@ -211,8 +214,8 @@ void *del_map(void *argv)
 //			printf("%s\n", (char *)val);
 		}
 	}
-	gettimeofday (&tvafter , &tz);
-	printf("del: %dms\n", (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000);
+	gettimeofday (&tvafter1 , &tz);
+	printf("del: %dms\n", (tvafter1.tv_sec-tvpre1.tv_sec)*1000+(tvafter1.tv_usec-tvpre1.tv_usec)/1000);
 	stop_thr(fptr);
 }
 
@@ -244,7 +247,7 @@ void *getmap(void *argv)
 	}	
 	}
 	gettimeofday (&tvafter , &tz);
-	printf("%d: %dms\n", z, (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000);
+	printf("get %d: %dms\n", z, (tvafter.tv_sec-tvpre.tv_sec)*1000+(tvafter.tv_usec-tvpre.tv_usec)/1000);
 	stop_thr(fptr);
 	return;
 }

@@ -103,7 +103,10 @@ main(void)
 			SMAP_SET_NUM_PAIR(&pair, i, buf[i], 8);
 		else
 			SMAP_SET_STR_PAIR(&pair, buf[i], 7, buf[i], 8);
-		rc = smap_put(map, &pair, 1);
+		if (i == 1633)
+			rc = smap_put(map, &pair, 1);
+		else
+			rc = smap_put(map, &pair, 1);
 		if (rc < 0){
 			printf("i: %d, error1: %d\n", i, rc);
 		}
@@ -137,9 +140,9 @@ main(void)
 
 
 	gettimeofday (&tvpre , &tz);
-
-	for (i = 0; i < LOOP_TIMES; i++) {
 		SMAP_SET_NUM_KEY(&pair, 1);
+	for (i = 0; i < LOOP_TIMES; i++) {
+
 		val = smap_get(map, &pair);
 		if (val == NULL){
 			printf("i: %d, get error\n", i);
