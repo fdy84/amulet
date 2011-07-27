@@ -220,9 +220,8 @@ check_str_pair(struct PAIR *pair)
 }
 
 static inline int
-smap_pair_copyin(struct PAIR *dst, struct PAIR *src, int copy_data)
+smap_pair_key_copyin(struct PAIR *dst, struct PAIR *src)
 {
-	/* copy the key */
 	if (src->type == KEYTYPE_NUM) {
 		dst->ikey = src->ikey;
 		dst->key_len = 0;
@@ -234,6 +233,9 @@ smap_pair_copyin(struct PAIR *dst, struct PAIR *src, int copy_data)
 			memcpy(dst->skey, src->skey, src->key_len);
 			dst->skey[src->key_len] = '\0';
 		} else {
+			/* Clean the skey data to 0*/
+			dst->ikey = 0;
+
 			memcpy((char *)(&(dst->skey)), src->skey, src->key_len);
 
 			((char *)(&(dst->skey)))[src->key_len] = '\0';
@@ -242,8 +244,14 @@ smap_pair_copyin(struct PAIR *dst, struct PAIR *src, int copy_data)
 	} else {
 		return (SMAP_GENERAL_ERROR);
 	}
-	
-	/* copy the value */
+	dst->type = src->type;
+
+	return (SMAP_OK);
+}
+
+static inline int
+smap_pair_val_copyin(struct PAIR *dst, struct PAIR *src, int copy_data)
+{
 	if (copy_data) {
 		if (IS_BIG_VALUE(src)) {
 			dst->data = malloc(src->data_len);
@@ -256,8 +264,26 @@ smap_pair_copyin(struct PAIR *dst, struct PAIR *src, int copy_data)
 	} else {
 		dst->data = src->data;
 	}
-	dst->type = src->type;
 	dst->data_len = src->data_len;
+	
+	return (SMAP_OK);
+}
+
+static inline int
+smap_pair_copyin(struct PAIR *dst, struct PAIR *src, int copy_data)
+{
+	int rc;
+
+	/* copy the key */
+	rc = smap_pair_key_copyin(dst, src);
+	if (rc != SMAP_OK)
+		return (rc);
+	
+	/* copy the value */
+	rc = smap_pair_val_copyin(dst, src, copy_data);
+	if (rc != SMAP_OK)
+		return (rc);
+
 	return (SMAP_OK);
 }
 
@@ -295,27 +321,45 @@ smap_set_key(struct PAIR *dst, struct PAIR *src, int *hash)
 	return (SMAP_OK);
 }
 
-static int
-smap_pair_copyout(char *dstkeybuf, struct PAIR *dst, struct PAIR *src)
+inline static int
+smap_pair_key_copyout(
+	char *dstkeybuf,
+	int buf_len,
+	struct PAIR *dst,
+	struct PAIR *src)
 {
 	if (src->type == KEYTYPE_NUM) {
 		dst->ikey = src->ikey;
 	} else if (src->type == KEYTYPE_STR) {
 		dst->skey = dstkeybuf;
-		if (src->key_len >= sizeof(char*)) {
+		if (IS_BIG_KEY(src)) {
+			if (src->key_len > buf_len)
+				return (SMAP_BUFFER_TOO_SHORT);
 			memcpy(dst->skey, src->skey, src->key_len);
 		} else {
 			memcpy(dst->skey, (char *)(&(src->skey)), src->key_len);
 		}
 		dst->skey[src->key_len] = '\0';
-
 		dst->key_len = src->key_len;
-
 	} else {
 		return (SMAP_GENERAL_ERROR);
 	}
+	return (SMAP_OK);
+}
+
+inline static int
+smap_pair_copyout(
+	char *dstkeybuf,
+	int buf_len,
+	struct PAIR *dst,
+	struct PAIR *src)
+{
+	int rc;
+	rc = smap_pair_key_copyout(dstkeybuf, buf_len, dst, src);
+	if (rc != SMAP_OK)
+		return (rc);
 	
-	/* copy value */
+	/* don't copy value, just use pointer */
 	if (IS_BIG_VALUE(src))
 		dst->data = src->data;
 	else
@@ -885,9 +929,9 @@ smap_put(struct SMAP *mp, struct PAIR *pair, int copy_data)
 
 	entry->hash = h;
 #ifdef	SMAP_USE_RBTREE
-		rc = RB_INSERT(SMAP_TREE, &(bp->root_head), entry);
+	rc = RB_INSERT(SMAP_TREE, &(bp->root_head), entry);
 #else
-		rc = LIST_INSERT(&(bp->root_head), entry);
+	rc = LIST_INSERT(&(bp->root_head), entry);
 #endif
 	if (rc == NULL) {
 		sp->counter++;
@@ -1328,6 +1372,7 @@ smap_get_first(
 	struct SMAP *mp,
 	struct PAIR *pair,
 	char *keybuf,
+	int	buf_len,
 	unsigned long key_type,
 	unsigned long start)
 {
@@ -1351,7 +1396,7 @@ smap_get_first(
 	}
 	return (NULL);
 got_pair:
-	smap_pair_copyout(keybuf, pair, &(np->pair));
+	smap_pair_copyout(keybuf, buf_len, pair, &(np->pair));
 	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	return (pair);
 }
@@ -1367,6 +1412,7 @@ smap_get_next(
 	struct SMAP *mp,
 	struct PAIR *pair,
 	char *keybuf,
+	int	buf_len,
 	unsigned long key_type,
 	unsigned long start)
 {
@@ -1458,7 +1504,7 @@ smap_get_next(
 	return (NULL);
 	
 got_pair:
-	smap_pair_copyout(keybuf, pair, &(np->pair));
+	smap_pair_copyout(keybuf, buf_len, pair, &(np->pair));
 	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	return (pair);
 }

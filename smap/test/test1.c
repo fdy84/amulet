@@ -158,8 +158,9 @@ main(void)
 	i = 0;
 	memset(&pair, 0, sizeof(pair));
 	gettimeofday (&tvpre , &tz);
-	for (p = smap_get_first(map, &pair, keybuf, KEYTYPE_ALL, 0);
-		p != NULL; p = smap_get_next(map, p, keybuf, KEYTYPE_ALL, 0)) {
+	for (p = smap_get_first(map, &pair, keybuf, SMAP_MAX_KEY_LEN + 1, KEYTYPE_ALL, 0);
+		p != NULL;
+		p = smap_get_next(map, p, keybuf, SMAP_MAX_KEY_LEN + 1, KEYTYPE_ALL, 0)) {
 		i++;
 		/*
 		int c = SMAP_IS_NUM(&pair);
@@ -176,8 +177,9 @@ main(void)
 	i = 0;
 	memset(&pair, 0, sizeof(pair));
 	gettimeofday (&tvpre , &tz);
-	for (p = smap_get_first(map, &pair, keybuf, KEYTYPE_NUM, 0);
-		p != NULL; p = smap_get_next(map, p, keybuf, KEYTYPE_NUM, 0)) {
+	for (p = smap_get_first(map, &pair, keybuf, SMAP_MAX_KEY_LEN + 1, KEYTYPE_NUM, 0);
+		p != NULL;
+		p = smap_get_next(map, p, keybuf, SMAP_MAX_KEY_LEN + 1, KEYTYPE_NUM, 0)) {
 		i++;
 	}
 	gettimeofday (&tvafter , &tz);
@@ -187,8 +189,9 @@ main(void)
 	i = 0;
 	memset(&pair, 0, sizeof(pair));
 	gettimeofday (&tvpre , &tz);
-	for (p = smap_get_first(map, &pair, keybuf, KEYTYPE_STR, 0);
-		p != NULL; p = smap_get_next(map, p, keybuf, KEYTYPE_STR, 0)) {
+	for (p = smap_get_first(map, &pair, keybuf, SMAP_MAX_KEY_LEN + 1, KEYTYPE_STR, 0);
+		p != NULL;
+		p = smap_get_next(map, p, keybuf, SMAP_MAX_KEY_LEN + 1, KEYTYPE_STR, 0)) {
 		i++;
 	}
 	gettimeofday (&tvafter , &tz);

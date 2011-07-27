@@ -38,9 +38,9 @@ int smap_traverse_unsafe
 	(struct SMAP *, smap_callback *, unsigned long, unsigned long);
 int smap_get_elm_num(struct SMAP *);
 struct PAIR *smap_get_first
-	(struct SMAP *, struct PAIR *, char *, unsigned long, unsigned long);
+	(struct SMAP *, struct PAIR *, char *, int, unsigned long, unsigned long);
 struct PAIR *smap_get_next
-	(struct SMAP *, struct PAIR *, char *, unsigned long, unsigned long);
+	(struct SMAP *, struct PAIR *, char *, int, unsigned long, unsigned long);
 
 uint64_t smap_get_segment_counter(struct SMAP *);
 uint64_t smap_get_bucket_counter(struct SMAP *);
@@ -64,6 +64,7 @@ uint64_t smap_get_bucket_counter(struct SMAP *);
 #define SMAP_OK 0
 #define SMAP_DUPLICATE_KEY -3
 #define SMAP_NONEXISTENT_KEY -4
+#define SMAP_BUFFER_TOO_SHORT -5
 
 #define SMAP_MAX_KEY_LEN 1023
 
