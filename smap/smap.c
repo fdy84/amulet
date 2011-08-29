@@ -1102,11 +1102,15 @@ smap_get(struct SMAP *mp, struct PAIR *pair)
 	if (np == NULL) {
 		return (NULL);
 	} else {
-		if (IS_BIG_VALUE(&(np->pair)))
-			pair->data = np->pair.data;
-		else
+		if (IS_BIG_VALUE(&(np->pair))) {
+	        pair->data = np->pair.data;
+	        pair->data_len = np->pair.data_len;
+		}
+		else {
 			pair->data = &(np->pair.data);
-		return (np->pair.data);
+			pair->data_len = np->pair.data_len;
+		}
+		return (pair->data);
 	}
 }
 
