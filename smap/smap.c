@@ -881,8 +881,50 @@ LIST_INSERT(struct SMAP_LIST *head, struct SMAP_ENT *entry)
 }
 #endif
 
+static int
+_replace(struct SMAP_ENT *np, struct PAIR *pair)
+{
+	/* if we alloc memory for value, we copy it */
+	if (!np->copied_data) {
+		np->pair.data = pair->data;
+	} else if (np->copied_data) {
+		/* We must consider all sorts of situations */
+		if (IS_BIG_VALUE(&(np->pair))) {
+			if (IS_BIG_VALUE(pair)) {
+				if (np->pair.data_len >= pair->data_len) {
+					memcpy(np->pair.data, pair->data, pair->data_len);
+				} else {
+					void *p;
+					int nlen = pair->data_len - np->pair.data_len;
+					p = realloc(np->pair.data, nlen);
+					if (p == NULL)
+						return (SMAP_OOM);
+					memcpy(((char *)p), np->pair.data, np->pair.data_len);
+					np->pair.data = p;
+				}
+			} else {
+				free(np->pair.data);
+				memcpy(&(np->pair.data), pair->data, pair->data_len);
+			}
+		} else {
+			if (IS_BIG_VALUE(pair)) {
+				void *p;
+				p = malloc(pair->data_len);
+				if (p == NULL)
+					return (SMAP_OOM);
+				memcpy(p, pair->data, pair->data_len);
+				np->pair.data = p;
+			} else {
+				memcpy(&(np->pair.data), pair->data, pair->data_len);
+			}
+		}
+	}
+	np->pair.data_len = pair->data_len;
+	return (SMAP_OK);
+}
+
 int
-smap_put(struct SMAP *mp, struct PAIR *pair, int copy_data)
+smap_set(struct SMAP *mp, struct PAIR *pair, int replace, int copy_data)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT *entry;
@@ -939,10 +981,21 @@ smap_put(struct SMAP *mp, struct PAIR *pair, int copy_data)
 		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (SMAP_OK);
 	} else {
+		if (replace)
+			r = _replace(rc, pair);
+		else
+			r = SMAP_DUPLICATE_KEY;
 		SMAP_UNLOCK(&(sp->seg_lock), 1);
-		return (SMAP_DUPLICATE_KEY);
+		return (r);
 	}
 }
+
+int
+smap_put(struct SMAP *mp, struct PAIR *pair, int copy_data)
+{
+	return (smap_set(mp, pair, 0, copy_data));
+}
+
 
 /*
  * it won't free the value, do it yourself.
@@ -1155,45 +1208,10 @@ smap_update(struct SMAP *mp, struct PAIR *pair)
 		SMAP_UNLOCK(&(sp->seg_lock), 1);
 		return (SMAP_NONEXISTENT_KEY);
 	} else {
-		/* if we alloc memory for value, we copy it */
-		if (!np->copied_data) {
-			np->pair.data = pair->data;
-		} else if (np->copied_data) {
-			/* We must consider all sorts of situations */
-			if (IS_BIG_VALUE(&(np->pair))) {
-				if (IS_BIG_VALUE(pair)) {
-					if (np->pair.data_len >= pair->data_len) {
-						memcpy(np->pair.data, pair->data, pair->data_len);
-					} else {
-						void *p;
-						int nlen = pair->data_len - np->pair.data_len;
-						p = realloc(np->pair.data, nlen);
-						if (p == NULL)
-							return (SMAP_OOM);
-						memcpy(((char *)p), np->pair.data, np->pair.data_len);
-						np->pair.data = p;
-					}
-				} else {
-					free(np->pair.data);
-					memcpy(&(np->pair.data), pair->data, pair->data_len);
-				}
-			} else {
-				if (IS_BIG_VALUE(pair)) {
-					void *p;
-					p = malloc(pair->data_len);
-					if (p == NULL)
-						return (SMAP_OOM);
-					memcpy(p, pair->data, pair->data_len);
-					np->pair.data = p;
-				} else {
-					memcpy(&(np->pair.data), pair->data, pair->data_len);
-				}
-			}
-		}
-		np->pair.data_len = pair->data_len;
+		r = _replace(np, pair);
 		
 		SMAP_UNLOCK(&(sp->seg_lock), 1);
-		return (SMAP_OK);
+		return (r);
 	}
 }
 
