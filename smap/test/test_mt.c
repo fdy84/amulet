@@ -242,7 +242,7 @@ void *getmap(void *argv)
 			SMAP_SET_NUM_KEY(&pair, i);
 		else
 			SMAP_SET_STR_KEY(&pair, buf[i], 7);
-		ret = smap_get(map, &pair);
+		ret = smap_get(map, &pair, 0);
 
 	}	
 	}

@@ -1119,7 +1119,7 @@ smap_get_bucket_counter(struct SMAP *mp)
  */
 
 void *
-smap_get(struct SMAP *mp, struct PAIR *pair)
+smap_get(struct SMAP *mp, struct PAIR *pair, int copy_value)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT *np;
@@ -1151,20 +1151,32 @@ smap_get(struct SMAP *mp, struct PAIR *pair)
 	}
 #endif
 	
-	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	if (np == NULL) {
+		SMAP_UNLOCK(&(sp->seg_lock), 0);
 		return (NULL);
+	}
+	
+	if (copy_value) {
+		pair->data = malloc(np->pair.data_len);
+		if (pair->data == NULL)
+			return (NULL);
+		if (IS_BIG_VALUE(&(np->pair))) {
+	        memcpy(pair->data, np->pair.data, np->pair.data_len);
+		} else {
+			memcpy(pair->data, &(np->pair.data), np->pair.data_len);
+		}
 	} else {
 		if (IS_BIG_VALUE(&(np->pair))) {
 	        pair->data = np->pair.data;
-	        pair->data_len = np->pair.data_len;
-		}
-		else {
+		} else {
 			pair->data = &(np->pair.data);
-			pair->data_len = np->pair.data_len;
+
 		}
-		return (pair->data);
 	}
+	pair->data_len = np->pair.data_len;
+	SMAP_UNLOCK(&(sp->seg_lock), 0);
+	return (pair->data);
+
 }
 
 /*

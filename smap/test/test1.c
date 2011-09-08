@@ -125,7 +125,7 @@ main(void)
 			SMAP_SET_NUM_KEY(&pair, i);
 		else
 			SMAP_SET_STR_KEY(&pair, buf[i], 7);
-		val = smap_get(map, &pair);
+		val = smap_get(map, &pair, 0);
 		if (val == NULL){
 			printf("i: %d, get error\n", i);
 		} else {
@@ -143,7 +143,7 @@ main(void)
 		SMAP_SET_NUM_KEY(&pair, 1);
 	for (i = 0; i < LOOP_TIMES; i++) {
 
-		val = smap_get(map, &pair);
+		val = smap_get(map, &pair, 0);
 		if (val == NULL){
 			printf("i: %d, get error\n", i);
 		} else {

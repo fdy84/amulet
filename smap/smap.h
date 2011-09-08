@@ -33,7 +33,7 @@ int smap_set(struct SMAP *, struct PAIR *, int, int);
 int smap_put(struct SMAP *, struct PAIR *, int);
 int smap_delete(struct SMAP *, struct PAIR *);
 void smap_clear(struct SMAP *, int);
-void *smap_get(struct SMAP *, struct PAIR *);
+void *smap_get(struct SMAP *, struct PAIR *, int);
 int smap_update(struct SMAP *, struct PAIR *);
 int smap_traverse_unsafe
 	(struct SMAP *, smap_callback *, unsigned long, unsigned long);
