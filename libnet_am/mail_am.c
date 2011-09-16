@@ -1,10 +1,10 @@
 /* autodoc
    查询一个ip是一个RBL中的值
-   uint32_t ip, input: 字符串, 需要查询的ip,点分十进制形式的ip字符串,如"127.0.0.1",长度为INET_ADDRSTRLEN
-   const char *base, input: 字符串, rblbase的字符串指针,
-   int rblbase_len, input: 长度为RBLBASELEN 
-   uint32_t *rblret, output:
-   return: 成功返回0,其他为失败
+   :uint32_t ip, input: 字符串, 需要查询的ip,点分十进制形式的ip字符串,如"127.0.0.1",长度为INET_ADDRSTRLEN
+   :const char *base, input: 字符串, rblbase的字符串指针,
+   :int rblbase_len, input: 长度为RBLBASELEN 
+   :uint32_t *rblret, output:
+   :return: 成功返回0,其他为失败
  */
 inline int get_rbl(uint32_t ip, const char *rblbase, int rblbase_len, uint32_t *rblret)
 {

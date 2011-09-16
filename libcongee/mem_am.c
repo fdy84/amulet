@@ -1,0 +1,1 @@
+#define freez(x) do { if (x) free(x); x = NULL; } while (0);

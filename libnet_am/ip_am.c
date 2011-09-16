@@ -23,11 +23,15 @@ inline int str2ip(const char *ipstr, uint32_t *ip)
 	return 0;
 }
 
-/*
- *获得一个IP的Ptr记录
- * const char *ipstr: input, 点分十进制形式的ip字符串,如"127.0.0.1"
- * char *ptr, output: 字符串, ptr记录的字符串指针,长度为PTRLEN
- * return: 成功返回0,其他为失败
+/* autodoc
+   获得一个IP的Ptr记录
+   
+   :``const char *ipstr``: 
+      input, 点分十进制形式的ip字符串,如"127.0.0.1"
+   :``char *ptr, output``: 
+      字符串, ptr记录的字符串指针,长度为PTRLEN
+   :``return``: 
+      成功返回0,其他为失败
  */
 inline int get_ptr(const uint32_t ip, char *ptr, int len)
 {                                                                                                     
