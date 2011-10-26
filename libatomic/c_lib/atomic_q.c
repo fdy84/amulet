@@ -345,3 +345,49 @@ void * AQM2get( QUEUE * Q )
     
     return c;
 }
+
+
+
+
+
+
+
+
+RQueue * RQueue_new( int length )
+{
+    ;
+}
+
+void RQueue_delete( RQueue *Q )
+{
+    ;
+}
+
+void * RQMput_nowait( RQUEUE * Q, void * v )
+{
+    int pos;
+    
+    if ( atomic_add_unless( Q->counter_max, 1, Q->length ) == 0 )
+        return NULL;
+    
+    tail = atomic_add_return( Q->tail );
+    
+    tail = tail & Q->length;
+    
+    (Q->ponter)[tail] = v;
+    
+    atomic_inc( Q->counter_min );
+    
+    return v;
+}
+
+void * RQMget_nowait( RQUEUE * Q )
+{
+    void * v;
+    
+    atomic32_dec_unless( Q->counter_min, -1, 0 );
+    
+    atomic_dec( Q->counter_max );
+    
+    return v;
+}
