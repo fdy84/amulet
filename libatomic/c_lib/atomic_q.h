@@ -67,6 +67,8 @@ void  * AQM2get_nowait( QUEUE * Q );
 struct roundqueue {
     atomic counter_min;
     atomic counter_max;
+    atomic read_lock;
+    atomic write_lock;
     int length;
     int head;
     int tail;
@@ -79,7 +81,7 @@ typedef struct roundqueue RQUEUE;
 RQueue * RQueue_new( int length );
 void RQueue_delete( RQueue *Q );
 
-void RQMput( RQUEUE * Q, void * v );
-void RQMget( RQUEUE * Q );
+void * RQMput_nowait( RQUEUE * Q, void * v );
+void * RQMget_nowait( RQUEUE * Q );
 
 #endif
