@@ -3221,7 +3221,7 @@ if __name__ == "__main__":
     
 
     
-    opts, args = getopt.getopt(sys.argv[1:], 'hp:d:')
+    opts, args = getopt.getopt(sys.argv[1:], 'hp:d:u:P:')
     opts = dict(opts)
     
 
@@ -3251,7 +3251,10 @@ usages       :
         sys.exit(1)
     
     authorizer = DummyAuthorizer()
-    authorizer.add_anonymous( opts.get( '-d', os.getcwd() ), perm='elradfmw' )
+    if opts.has_key('-u'):
+        authorizer.add_user( opts.get( '-u'), opts.get('-P'), opts.get( '-d', os.getcwd() ), perm='elradfmw' )
+    else:
+        authorizer.add_anonymous( opts.get( '-d', os.getcwd() ), perm='elradfmw' )
     
     FTPHandler.authorizer = authorizer
     
