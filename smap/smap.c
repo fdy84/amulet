@@ -895,11 +895,11 @@ _replace(struct SMAP_ENT *np, struct PAIR *pair)
 					memcpy(np->pair.data, pair->data, pair->data_len);
 				} else {
 					void *p;
-					int nlen = pair->data_len - np->pair.data_len;
-					p = realloc(np->pair.data, nlen);
+					//int nlen = pair->data_len - np->pair.data_len;
+					p = realloc(np->pair.data, pair->data_len);
 					if (p == NULL)
 						return (SMAP_OOM);
-					memcpy(((char *)p), np->pair.data, np->pair.data_len);
+					memcpy(((char *)p), pair->data, pair->data_len);
 					np->pair.data = p;
 				}
 			} else {
@@ -1116,6 +1116,7 @@ smap_get_bucket_counter(struct SMAP *mp)
 }
 
 /*
+ * If copied the data, remember to free the memory.
  */
 
 void *

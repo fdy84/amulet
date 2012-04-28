@@ -110,7 +110,6 @@ uint64_t smap_get_bucket_counter(struct SMAP *);
 
 #define SMAP_GET_STR_KEY(pair)	\
 	(pair)->skey
-//((pair)->key_len >= sizeof(char *) ? (pair)->skey: (char*)(&((pair)->skey)))
 
 #define SMAP_GET_VALUE(pair) ((pair)->data)
 #define SMAP_GET_VALUE_LEN(pair) ((pair)->data_len)
