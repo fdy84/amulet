@@ -1162,13 +1162,13 @@ smap_get(struct SMAP *mp, struct PAIR *pair, int copy_value)
 		pair->data = malloc(np->pair.data_len);
 		if (pair->data == NULL)
 			return (NULL);
-		if (IS_BIG_VALUE(&(np->pair))) {
+		if (IS_BIG_VALUE(&(np->pair)) || !np->copied_data) {
 	        memcpy(pair->data, np->pair.data, np->pair.data_len);
 		} else {
 			memcpy(pair->data, &(np->pair.data), np->pair.data_len);
 		}
 	} else {
-		if (IS_BIG_VALUE(&(np->pair))) {
+		if (IS_BIG_VALUE(&(np->pair)) || !np->copied_data) {
 	        pair->data = np->pair.data;
 		} else {
 			pair->data = &(np->pair.data);
