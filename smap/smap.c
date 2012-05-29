@@ -352,7 +352,8 @@ smap_pair_copyout(
 	char *dstkeybuf,
 	int buf_len,
 	struct PAIR *dst,
-	struct PAIR *src)
+	struct PAIR *src,
+	int copy_data)
 {
 	int rc;
 	rc = smap_pair_key_copyout(dstkeybuf, buf_len, dst, src);
@@ -360,7 +361,7 @@ smap_pair_copyout(
 		return (rc);
 	
 	/* don't copy value, just use pointer */
-	if (IS_BIG_VALUE(src))
+	if (IS_BIG_VALUE(src) || !copy_data)
 		dst->data = src->data;
 	else
 		dst->data = &(src->data);
@@ -1431,7 +1432,7 @@ smap_get_first(
 	}
 	return (NULL);
 got_pair:
-	smap_pair_copyout(keybuf, buf_len, pair, &(np->pair));
+	smap_pair_copyout(keybuf, buf_len, pair, &(np->pair), np->copied_data);
 	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	return (pair);
 }
@@ -1539,8 +1540,9 @@ smap_get_next(
 	return (NULL);
 	
 got_pair:
-	smap_pair_copyout(keybuf, buf_len, pair, &(np->pair));
+	smap_pair_copyout(keybuf, buf_len, pair, &(np->pair), np->copied_data);
 	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	return (pair);
 }
+
 
