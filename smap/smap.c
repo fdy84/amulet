@@ -569,9 +569,9 @@ smap_init(
 	int ssize = 1;
 	int cap, c;
 
-	printf("conflict_type: %d\n", SMAP_CONFLICT_TYPE);
-	printf("sizeof(smap):\t%lu \nsizeof(pair):\t%lu \nsizeof(ent):\t%lu \nsizeof(seg):\t%lu \nsizeof(bucket):\t%lu\n",
-	 sizeof(struct SMAP), sizeof(struct PAIR), sizeof(struct SMAP_ENT), sizeof(struct SEGMENT), sizeof(struct BUCKET));
+	//printf("conflict_type: %d\n", SMAP_CONFLICT_TYPE);
+	//printf("sizeof(smap):\t%lu \nsizeof(pair):\t%lu \nsizeof(ent):\t%lu \nsizeof(seg):\t%lu \nsizeof(bucket):\t%lu\n",
+	 //sizeof(struct SMAP), sizeof(struct PAIR), sizeof(struct SMAP_ENT), sizeof(struct SEGMENT), sizeof(struct BUCKET));
 
 	if (!(load_factor > 0) || capacity < 0 || level <= 0)
 		return (NULL);
@@ -707,8 +707,6 @@ int
 smap_deinit(struct SMAP *mp)
 {
 	struct BUCKET *bp;
-	struct SMAP_ENT *np;
-	struct SMAP_ENT *tnp;
 	unsigned int i, j;
 	struct SEGMENT *sp;
 	
@@ -737,8 +735,8 @@ static inline void
 _clear(
 	struct SMAP_TREE *root,
 	struct ENTRY_POOL_HEAD *new_pool,
-	int *pool_size,
-	int bucket_num)
+	unsigned int *pool_size,
+	unsigned int bucket_num)
 {
 	struct SMAP_ENT *np;
 	struct SMAP_ENT *tnp;
@@ -1007,7 +1005,7 @@ smap_delete(struct SMAP *mp, struct PAIR *pair)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT entry;
-	struct SMAP_ENT *np, *tnp;
+	struct SMAP_ENT *np;
 	struct SEGMENT *sp;
 	int h;
 	int r;
@@ -1191,7 +1189,7 @@ smap_update(struct SMAP *mp, struct PAIR *pair)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT entry;
-	struct SMAP_ENT *np, *tnp;
+	struct SMAP_ENT *np;
 	int h, r;
 	struct SEGMENT *sp;
 
@@ -1234,7 +1232,6 @@ traverse_all(struct SMAP *mp, void *rh, smap_callback *routine)
 {
 	struct SMAP_ENT *np;
 	struct SMAP_ENT *tnp;
-	struct PAIR pair;
 	int rc;
 	
 #ifdef	SMAP_USE_RBTREE
@@ -1263,7 +1260,6 @@ traverse_num(struct SMAP *mp, void *rh, smap_callback *routine)
 {
 	struct SMAP_ENT *np;
 	struct SMAP_ENT *tnp;
-	struct PAIR pair;
 	int rc;
 	
 #ifdef	SMAP_USE_RBTREE
@@ -1297,9 +1293,7 @@ traverse_str(struct SMAP *mp, void *rh, smap_callback *routine)
 {
 	struct SMAP_ENT *np;
 	struct SMAP_ENT *tnp;
-	struct PAIR pair;
 	int rc;
-	char keybuf[SMAP_MAX_KEY_LEN+1];
 
 #ifdef	SMAP_USE_RBTREE
 	struct SMAP_TREE *root = (struct SMAP_TREE *)rh;
@@ -1544,5 +1538,6 @@ got_pair:
 	SMAP_UNLOCK(&(sp->seg_lock), 0);
 	return (pair);
 }
+
 
 
