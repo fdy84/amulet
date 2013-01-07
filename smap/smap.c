@@ -67,7 +67,7 @@ struct SMAP_ENT {
 		SLIST_ENTRY(SMAP_ENT) node;	/* memory pool entry */
 #endif
 	};
-	uint32_t copied_data;	/* reserved */
+	uint32_t copied_data;	/* to mark the data is copied */
 	int hash;	/* the hash code of key, both string or number */
 	struct PAIR pair;	/* the k-v pair */
 };
@@ -995,10 +995,19 @@ smap_put(struct SMAP *mp, struct PAIR *pair, int copy_data)
 	return (smap_set(mp, pair, 0, copy_data));
 }
 
+int
+smap_add_smap(struct SMAP *mp, struct PAIR *pair)
+{
+	struct SMAP *sub_map;
 
-/*
- * it won't free the value, do it yourself.
- */
+	sub_map = smap_init(DEFAULT_INITIAL_CAPACITY,
+		DEFAULT_LOAD_FACTOR, DEFAULT_CONCURRENCY_LEVEL, DEFAULT_INITIAL_CAPACITY/100, mp->mt);
+	SMAP_SET_VALUE(pair, sub_map, sizeof(struct SMAP));	
+	
+	return (smap_set(mp, pair, 0, SMAP_DATA_SUBMAP));
+}
+
+
 
 int
 smap_delete(struct SMAP *mp, struct PAIR *pair)
@@ -1067,7 +1076,7 @@ smap_delete(struct SMAP *mp, struct PAIR *pair)
 	return (SMAP_OK);
 }
 
-int
+uint64_t
 smap_get_elm_num(struct SMAP *mp)
 {
 	int c = 0;
@@ -1081,7 +1090,7 @@ smap_get_elm_num(struct SMAP *mp)
 	}
 	return c;
 }
-
+/*
 uint64_t
 smap_get_segment_counter(struct SMAP *mp)
 {
@@ -1113,13 +1122,13 @@ smap_get_bucket_counter(struct SMAP *mp)
 	}
 	return c;
 }
-
+*/
 /*
  * If copied the data, remember to free the memory.
  */
 
 void *
-smap_get(struct SMAP *mp, struct PAIR *pair, int copy_value)
+smap_get(struct SMAP *mp, struct PAIR *pair, int copy_out)
 {
 	struct BUCKET *bp;
 	struct SMAP_ENT *np;
@@ -1156,7 +1165,7 @@ smap_get(struct SMAP *mp, struct PAIR *pair, int copy_value)
 		return (NULL);
 	}
 	
-	if (copy_value) {
+	if (copy_out) {
 		pair->data = malloc(np->pair.data_len);
 		if (pair->data == NULL)
 			return (NULL);
