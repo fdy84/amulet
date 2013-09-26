@@ -1170,7 +1170,7 @@ smap_get(struct SMAP *mp, struct PAIR *pair, int copy_out)
 		if (pair->data == NULL)
 			return (NULL);
 		if (IS_BIG_VALUE(&(np->pair)) || !np->copied_data) {
-	        memcpy(pair->data, np->pair.data, np->pair.data_len);
+			memcpy(pair->data, np->pair.data, np->pair.data_len);
 		} else {
 			memcpy(pair->data, &(np->pair.data), np->pair.data_len);
 		}
